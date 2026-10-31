@@ -1,0 +1,2131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>U WILL CLASSES — AI Timetable Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <style>
+        .active-tab { border-bottom: 3px solid #27348B; color: #27348B; font-weight: 700; }
+        .ai-chat-content table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; margin-bottom: 0.5rem; font-size: 0.75rem; }
+        .ai-chat-content th { background-color: #27348B; color: white; padding: 0.35rem 0.5rem; border: 1px solid #1e293b; text-align: left; }
+        .ai-chat-content td { padding: 0.35rem 0.5rem; border: 1px solid #e2e8f0; }
+        .ai-chat-content tr:nth-child(even) { background-color: #f8fafc; }
+        .ai-chat-content ul { list-style-type: disc; margin-left: 1.25rem; margin-top: 0.25rem; margin-bottom: 0.25rem; }
+        .ai-chat-content ol { list-style-type: decimal; margin-left: 1.25rem; margin-top: 0.25rem; margin-bottom: 0.25rem; }
+        .ai-chat-content h3 { font-size: 0.875rem; font-weight: 700; color: #27348B; margin-top: 0.5rem; margin-bottom: 0.25rem; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <!-- Header -->
+    <header class="bg-[#27348B] text-white shadow-lg sticky top-0 z-50 border-b-4 border-[#EE2A35]">
+        <div class="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center space-x-3.5">
+                <img src="/uwill_logo.png" alt="U WILL Logo" class="h-12 bg-white px-2 py-1 rounded-lg shadow-sm object-contain" />
+                <div>
+                    <h1 class="text-lg md:text-xl font-extrabold tracking-tight flex items-center gap-2">
+                        <span>U WILL CLASSES</span>
+                        <span class="text-[10px] bg-[#EE2A35] text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider">EDUCATION REDEFINED</span>
+                    </h1>
+                    <p class="text-xs text-blue-100 font-medium">AI Timetable Command Center • 11 Branches • 41 Faculties • Multi-Center Transit Optimization</p>
+                </div>
+            </div>
+            <!-- Top Right Action Buttons -->
+            <div class="flex items-center gap-2.5">
+                <button onclick="generateSchedule()" id="btnGenerate" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-4 py-2 rounded-lg text-sm font-black flex items-center space-x-2 transition shadow cursor-pointer">
+                    <i class="fa-solid fa-bolt text-slate-950"></i>
+                    <span>Generate Schedule</span>
+                </button>
+                <button onclick="openFinaliseModalForActive()" id="btnHeaderFinalise" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-lg text-sm font-bold flex items-center space-x-1.5 transition shadow cursor-pointer" title="Mark current schedule as Finalised from effective date">
+                    <i class="fa-solid fa-stamp"></i>
+                    <span>Mark Finalised</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <!-- Status Notification Box -->
+        <div id="statusBox" class="hidden mb-6 p-4 rounded-xl shadow-sm border text-sm flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <span id="statusIcon"></span>
+                <span id="statusMessage" class="font-medium"></span>
+            </div>
+            <button onclick="hideStatus()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="border-b border-slate-200 mb-6 flex space-x-6">
+            <button onclick="switchTab('batches')" id="tabBtnBatches" class="pb-3 text-sm flex items-center space-x-2 active-tab">
+                <i class="fa-solid fa-graduation-cap"></i>
+                <span>Batch Timetables</span>
+            </button>
+            <button onclick="switchTab('faculties')" id="tabBtnFaculties" class="pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700">
+                <i class="fa-solid fa-chalkboard-user"></i>
+                <span>Faculty Personal Schedules</span>
+            </button>
+            <button onclick="switchTab('topics')" id="tabBtnTopics" class="pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700">
+                <i class="fa-solid fa-book-open"></i>
+                <span>Weekly Chapter & Topic Editor</span>
+            </button>
+            <button onclick="switchTab('ai')" id="tabBtnAi" class="pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700">
+                <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+                <span class="font-bold text-slate-700">AI Schedule Assistant</span>
+                <span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded-full border border-amber-300">GEMINI</span>
+            </button>
+            <button onclick="switchTab('library')" id="tabBtnLibrary" class="pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700">
+                <i class="fa-solid fa-folder-tree text-indigo-600"></i>
+                <span class="font-bold text-slate-700">Library</span>
+                <span id="libraryBadge" class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full border border-indigo-200">Firebase</span>
+            </button>
+            <button onclick="switchTab('links')" id="tabBtnLinks" class="pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700">
+                <i class="fa-solid fa-link text-emerald-600"></i>
+                <span class="font-bold text-slate-700">Important Links</span>
+                <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full border border-emerald-300">HUB</span>
+            </button>
+        </div>
+
+        <!-- TAB 1: BATCH TIMETABLES -->
+        <section id="tabBatches" class="space-y-4">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                            <i class="fa-solid fa-calendar-days text-amber-500"></i>
+                            <span>Academic Year:</span>
+                        </label>
+                        <select id="batchYearSelect" onchange="onYearChangeFromTab(this.value)" class="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold w-44 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                            <option value="2026-27" selected>2026-27 (Default)</option>
+                            <option value="2027-28">2027-28</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Select Branch & Batch:</label>
+                        <select id="batchSelect" onchange="renderBatchTimetable()" class="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium w-72 focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <button onclick="downloadSelectedBatchPDF()" id="btnDownloadBatchPDF" class="mt-4 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center space-x-2 transition shadow">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Download Batch PDF</span>
+                    </button>
+                </div>
+                <div class="text-xs text-slate-500 italic">
+                    * Mon-Wed and Thu-Sat blocks are prioritized to have matching lecture timings.
+                </div>
+            </div>
+
+            <!-- Batch Timetable Matrix Table -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+                    <div class="flex items-center space-x-3">
+                        <h2 id="batchMatrixTitle" class="font-bold text-slate-800 text-base">Batch Timetable</h2>
+                        <span id="batchTimeBounds" class="text-xs bg-blue-100 text-[#27348B] px-2 py-0.5 rounded-full font-medium"></span>
+                    </div>
+                    <button onclick="downloadSelectedBatchPDF()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                        <i class="fa-solid fa-download"></i>
+                        <span>Download PDF</span>
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse" id="batchMatrixTable">
+                        <thead class="bg-[#27348B] text-white">
+                            <tr>
+                                <th class="p-3 font-semibold border-r border-blue-900 w-36 text-center">TIME SLOT</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">MONDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">TUESDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">WEDNESDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">THURSDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">FRIDAY</th>
+                                <th class="p-3 font-semibold text-center">SATURDAY</th>
+                            </tr>
+                        </thead>
+                        <tbody id="batchMatrixBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: FACULTY PERSONAL SCHEDULES -->
+        <section id="tabFaculties" class="hidden space-y-4">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                            <i class="fa-solid fa-calendar-days text-amber-500"></i>
+                            <span>Academic Year:</span>
+                        </label>
+                        <select id="facultyYearSelect" onchange="onYearChangeFromTab(this.value)" class="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold w-44 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                            <option value="2026-27" selected>2026-27 (Default)</option>
+                            <option value="2027-28">2027-28</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Select Faculty:</label>
+                        <select id="facultySelect" onchange="renderFacultySchedule()" class="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium w-72 focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <button onclick="downloadSelectedFacultyPDF()" id="btnDownloadFacultyPDF" class="mt-4 bg-[#27348B] hover:bg-blue-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center space-x-2 transition shadow">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Download Faculty PDF</span>
+                    </button>
+                </div>
+                <div class="text-xs text-slate-500 italic">
+                    * Shows exact lecture timings with strict cross-branch travel buffers.
+                </div>
+            </div>
+
+            <!-- Faculty Schedule Table -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+                    <h2 id="facultyMatrixTitle" class="font-bold text-slate-800 text-base">Faculty Weekly Schedule</h2>
+                    <button onclick="downloadSelectedFacultyPDF()" class="bg-[#27348B] hover:bg-blue-900 text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                        <i class="fa-solid fa-download"></i>
+                        <span>Download PDF</span>
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse" id="facultyMatrixTable">
+                        <thead class="bg-[#27348B] text-white">
+                            <tr>
+                                <th class="p-3 font-semibold border-r border-blue-900 w-36 text-center">TIME SLOT</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">MONDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">TUESDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">WEDNESDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">THURSDAY</th>
+                                <th class="p-3 font-semibold border-r border-blue-900 text-center">FRIDAY</th>
+                                <th class="p-3 font-semibold text-center">SATURDAY</th>
+                            </tr>
+                        </thead>
+                        <tbody id="facultyMatrixBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: CHAPTER & TOPIC EDITOR -->
+        <section id="tabTopics" class="hidden space-y-4">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex justify-between items-center">
+                <div>
+                    <h2 class="text-base font-bold text-slate-800">Weekly Syllabus Planner</h2>
+                    <p class="text-xs text-slate-500">Edit Chapter & Topic for each lecture below, then click "Save & Bake into PDFs".</p>
+                </div>
+                <button onclick="saveTopics()" id="btnSaveTopics" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center space-x-1.5 shadow transition">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>Save & Bake into PDFs</span>
+                </button>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto max-h-[600px]">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-800 text-white sticky top-0 z-10">
+                            <tr>
+                                <th class="p-2.5">Branch</th>
+                                <th class="p-2.5">Batch</th>
+                                <th class="p-2.5">Day</th>
+                                <th class="p-2.5">Time</th>
+                                <th class="p-2.5">Subject</th>
+                                <th class="p-2.5">Faculty</th>
+                                <th class="p-2.5 w-44">Chapter</th>
+                                <th class="p-2.5 w-56">Topic</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topicsTableBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: AI SCHEDULE ASSISTANT -->
+        <section id="tabAi" class="hidden space-y-4">
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+                        <span>Gemini AI Schedule Assistant & Diagnostician</span>
+                    </h2>
+                    <p class="text-xs text-slate-500">Ask natural language questions about faculty routines, batch timetables, test timings, or diagnose timetable feasibility.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="runAiDiagnosis()" id="btnDiagnose" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow transition">
+                        <i class="fa-solid fa-stethoscope"></i>
+                        <span>Diagnose Infeasibility & Bottlenecks</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Questions Prompt Chips -->
+            <div class="flex flex-wrap gap-2 text-xs items-center">
+                <span class="text-slate-400 font-semibold py-1">Try Asking:</span>
+                <button onclick="sendQuickPrompt('In Bright CBSE B, replace OCM on Saturday with Business Studies taken by Nilesh Sir')" class="bg-purple-50 hover:bg-purple-100 text-purple-800 hover:border-purple-300 px-3 py-1 rounded-full border border-purple-200 transition shadow-sm font-semibold">
+                    👤 Replace OCM with Nilesh Sir (Bright)
+                </button>
+                <button onclick="sendQuickPrompt('Fill blank space on Thursday at BRIGHT 11TH CBSE - B with Business Studies by Suketu Sir from 8:45 AM to 9:30 AM')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 hover:border-emerald-300 px-3 py-1 rounded-full border border-emerald-200 transition shadow-sm font-semibold">
+                    ➕ Fill Thursday Gap (Bright)
+                </button>
+                <button onclick="sendQuickPrompt('Move Darshan Sir Economics lecture at BRIGHT from Wednesday to Thursday 9:30 AM')" class="bg-blue-50 hover:bg-blue-100 text-[#27348B] hover:border-blue-300 px-3 py-1 rounded-full border border-blue-200 transition shadow-sm font-semibold">
+                    🔄 Move Economics Lecture
+                </button>
+                <button onclick="sendQuickPrompt('Show me Vicky Sir schedule on Monday across all branches')" class="bg-white hover:bg-blue-50 hover:text-[#27348B] hover:border-blue-300 text-slate-700 px-3 py-1 rounded-full border border-slate-200 transition shadow-sm">
+                    👨‍🏫 Vicky Sir Monday Schedule
+                </button>
+                <button onclick="sendQuickPrompt('Show me the timetable for VB 12TH GSEB (FLEXI)')" class="bg-white hover:bg-blue-50 hover:text-[#27348B] hover:border-blue-300 text-slate-700 px-3 py-1 rounded-full border border-slate-200 transition shadow-sm">
+                    📚 VB 12th Flexi Timetable
+                </button>
+            </div>
+
+            <!-- Chat Window -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[520px]">
+                <!-- Chat Messages Scroll Area -->
+                <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 rounded-full bg-[#27348B] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow">
+                            AI
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3.5 shadow-sm text-xs text-slate-700 max-w-3xl leading-relaxed">
+                            <p class="font-bold text-[#27348B] mb-1">Welcome to U WILL CLASSES AI Schedule Command Center!</p>
+                            <p>I have direct access to your master timetable covering all 11 branches, 36 batches, and 41 faculties.</p>
+                            <p class="mt-2 text-slate-500">You can ask me:</p>
+                            <ul class="list-disc list-inside mt-1 space-y-0.5 text-slate-600">
+                                <li><i>"Show me Vicky Sir's schedule on Monday across all branches."</i></li>
+                                <li><i>"Show me Aasif Sir's schedule for Wednesday."</i></li>
+                                <li><i>"What is the schedule for VB 12TH GSEB (FLEXI)?"</i></li>
+                                <li><i>"Which branches have tests on Monday?"</i></li>
+                                <li><i>Click <b>'Diagnose Infeasibility & Bottlenecks'</b> to check for faculty capacity overloads and actionable fixes.</i></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input Bar -->
+                <div class="p-3 bg-white border-t border-slate-200 flex items-center space-x-2">
+                    <input type="text" id="chatInput" onkeydown="if(event.key === 'Enter') submitChat();" placeholder="Ask anything about faculty schedules, batch timetables, tests, or mid-year adjustments..." class="flex-1 bg-slate-100 border border-slate-300 rounded-lg px-4 py-2.5 text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-[#27348B] focus:bg-white transition" />
+                    <button onclick="submitChat()" id="btnSendChat" class="bg-[#27348B] hover:bg-blue-900 text-white px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition shadow">
+                        <i class="fa-solid fa-paper-plane"></i>
+                        <span>Ask AI</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: LIBRARY (CLOUD FIREBASE) -->
+        <section id="tabLibrary" class="hidden space-y-6">
+            <!-- Header Card -->
+            <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-2xl shadow-md border border-indigo-900/50 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 rounded-xl bg-indigo-600/30 border border-indigo-400/40 flex items-center justify-center text-indigo-300 text-2xl shadow-inner">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h2 class="text-lg font-black tracking-tight">Timetable Cloud Library</h2>
+                            <span class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Firebase Cloud Storage
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-300 mt-0.5">Centralized institutional archive stored securely on Firebase. Accessible from any computer, tablet, or smartphone.</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="fetchAndRenderLibrary()" class="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-2 rounded-lg border border-white/20 transition flex items-center gap-1.5 shadow">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                        <span>Refresh Library</span>
+                    </button>
+                    <button onclick="openFinaliseModalForActive()" class="bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-md transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-stamp"></i>
+                        <span>Mark Current as Finalised</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Library Folders Container -->
+            <div class="space-y-6">
+                <!-- FOLDER 1: PAST CREATED SCHEDULES -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex items-center space-x-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                                    <span>PAST CREATED SCHEDULES</span>
+                                    <span id="pastCountBadge" class="text-xs bg-blue-100 text-[#27348B] font-bold px-2 py-0.5 rounded-full">0</span>
+                                </h3>
+                                <p class="text-[11px] text-slate-500">Stores all schedules generated in the last 1 month date. Schedules are deleted automatically after 1 month in chronological order.</p>
+                            </div>
+                        </div>
+                        <span class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1">
+                            <i class="fa-solid fa-hourglass-half text-amber-600"></i>
+                            <span>1-Month Auto Retention Active</span>
+                        </span>
+                    </div>
+
+                    <!-- Past Schedules Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead class="bg-slate-100/70 text-slate-600 uppercase font-bold tracking-wider border-b border-slate-200">
+                                <tr>
+                                    <th class="p-3 w-48">Generation Date & Time</th>
+                                    <th class="p-3">Schedule Title / Description</th>
+                                    <th class="p-3 w-40 text-center">Batches & Faculties</th>
+                                    <th class="p-3 w-48 text-center">Retention Status</th>
+                                    <th class="p-3 w-56 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pastSchedulesBody" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="5" class="p-8 text-center text-slate-400 italic">
+                                        <i class="fa-solid fa-spinner fa-spin text-lg mb-2 block"></i>
+                                        Loading past schedules from Firebase...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- FOLDER 2: FINALISED SCHEDULES -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 bg-emerald-50/50 border-b border-emerald-100 flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex items-center space-x-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shadow-sm">
+                                <i class="fa-solid fa-shield-halved"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-extrabold text-emerald-950 flex items-center gap-2">
+                                    <span>FINALISED SCHEDULES</span>
+                                    <span id="finalisedCountBadge" class="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200">0</span>
+                                </h3>
+                                <p class="text-[11px] text-emerald-700">Official finalized schedules with effective dates (DD/MM/YYYY). Preserved permanently until deleted manually.</p>
+                            </div>
+                        </div>
+                        <span class="text-[11px] text-emerald-800 bg-emerald-100/70 border border-emerald-200 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-lock text-emerald-700"></i>
+                            <span>Permanent Cloud Storage (Protected)</span>
+                        </span>
+                    </div>
+
+                    <!-- Finalised Schedules Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead class="bg-slate-100/70 text-slate-600 uppercase font-bold tracking-wider border-b border-slate-200">
+                                <tr>
+                                    <th class="p-3 w-48 text-center">Finalised Effective Date</th>
+                                    <th class="p-3">Schedule Title / Reference</th>
+                                    <th class="p-3 w-44">Finalised On & Created On</th>
+                                    <th class="p-3 w-36 text-center">Batches & Faculties</th>
+                                    <th class="p-3 w-80 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="finalisedSchedulesBody" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="5" class="p-8 text-center text-slate-400 italic">
+                                        <i class="fa-solid fa-spinner fa-spin text-lg mb-2 block"></i>
+                                        Loading finalised schedules from Firebase...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: IMPORTANT LINKS & DOWNLOAD HUB -->
+        <section id="tabImportantLinks" class="hidden space-y-6">
+            <!-- Central Hub Header Banner -->
+            <div class="bg-gradient-to-r from-[#27348B] via-indigo-900 to-[#1e2768] text-white p-5 rounded-2xl shadow-md border-b-4 border-emerald-500 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center space-x-3.5">
+                    <div class="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center text-2xl text-emerald-400 shadow-inner">
+                        <i class="fa-solid fa-link"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-lg font-black tracking-tight text-white uppercase">Important Links & Central Hub</h2>
+                            <span class="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Direct Access</span>
+                        </div>
+                        <p class="text-xs text-blue-200 mt-0.5">Direct Google Sheets links, Cloud Sync / Push actions, and Complete PDF Downloads.</p>
+                    </div>
+                </div>
+                <div class="text-xs text-emerald-300 bg-emerald-950/60 border border-emerald-500/40 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                    <i class="fa-solid fa-circle-check text-emerald-400"></i>
+                    <span>All Cloud Connections Live</span>
+                </div>
+            </div>
+
+            <!-- PART 1: INPUTS -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-blue-100 text-[#27348B] flex items-center justify-center font-bold text-sm">
+                            <i class="fa-solid fa-file-import"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-extrabold text-slate-900 uppercase tracking-wide">Part 1: Inputs (Master Requirements Sheets)</h3>
+                            <p class="text-[11px] text-slate-500">Live master requirement spreadsheets with dedicated sync buttons for each academic year.</p>
+                        </div>
+                    </div>
+                    <span class="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">Inputs</span>
+                </div>
+
+                <div class="p-5 space-y-3.5">
+                    <!-- Year 2026-27 Input Row -->
+                    <div class="flex flex-wrap items-center justify-between p-3.5 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs bg-amber-100 text-amber-900 border border-amber-300 font-black px-2.5 py-1 rounded-lg">2026-27</span>
+                            <a href="https://docs.google.com/spreadsheets/d/1oZIhdOJoo--kWjSYLQUGyWppJaRSc8OAgb_tiT4GVt4/edit?pli=1&gid=270974985#gid=270974985" target="_blank" class="bg-[#27348B] hover:bg-blue-900 text-white font-bold px-4 py-2 rounded-lg text-xs md:text-sm flex items-center space-x-2 transition shadow">
+                                <i class="fa-solid fa-table-cells text-emerald-400"></i>
+                                <span>Input Sheet 2026-27</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-blue-200 ml-1"></i>
+                            </a>
+                        </div>
+                        <button onclick="syncGoogleSheets('2026-27', this)" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition shadow">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                            <span>Sync 2026-27 Sheet</span>
+                        </button>
+                    </div>
+
+                    <!-- Year 2027-28 Input Row -->
+                    <div class="flex flex-wrap items-center justify-between p-3.5 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition gap-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs bg-indigo-100 text-indigo-900 border border-indigo-300 font-black px-2.5 py-1 rounded-lg">2027-28</span>
+                            <a href="https://docs.google.com/spreadsheets/d/1j4ALHK-etY5CyJ1fx1jywi5fle9xMARebiyqq_tWsyI/edit?usp=sharing" target="_blank" class="bg-[#27348B] hover:bg-blue-900 text-white font-bold px-4 py-2 rounded-lg text-xs md:text-sm flex items-center space-x-2 transition shadow">
+                                <i class="fa-solid fa-table-cells text-emerald-400"></i>
+                                <span>Input Sheet 2027-28</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-blue-200 ml-1"></i>
+                            </a>
+                        </div>
+                        <button onclick="syncGoogleSheets('2027-28', this)" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition shadow">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                            <span>Sync 2027-28 Sheet</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PART 2: OUTPUTS -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
+                            <i class="fa-solid fa-file-export"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-extrabold text-slate-900 uppercase tracking-wide">Part 2: Outputs (Google Sheets Timetables)</h3>
+                            <p class="text-[11px] text-slate-500">Live published Batch & Faculty timetables on Google Sheets with direct cloud push buttons.</p>
+                        </div>
+                    </div>
+                    <span class="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">Outputs</span>
+                </div>
+
+                <div class="p-5 space-y-3.5">
+                    <!-- 2026-27 Outputs Row -->
+                    <div class="flex flex-wrap items-center justify-between p-3.5 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition gap-3">
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <span class="text-xs bg-amber-100 text-amber-900 border border-amber-300 font-black px-2.5 py-1 rounded-lg">2026-27</span>
+                            <a href="https://docs.google.com/spreadsheets/d/1d3P2qL7rZFl5Pkt8aDpr7_d5U2mok8lpLgELWrjh6CE/edit" target="_blank" class="bg-blue-900/80 hover:bg-blue-800 text-white px-3.5 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition border border-blue-400" title="Open Batch Schedules 2026-27">
+                                <i class="fa-solid fa-table text-emerald-400"></i>
+                                <span>BATCH SHEET 2026-27</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-blue-200"></i>
+                            </a>
+                            <a href="https://docs.google.com/spreadsheets/d/1ILnDlPNjN5WaVZZ2T5LnDJx2TFALZtxbeay-bA4CLpo/edit" target="_blank" class="bg-blue-900/80 hover:bg-blue-800 text-white px-3.5 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition border border-blue-400" title="Open Faculty Schedules 2026-27">
+                                <i class="fa-solid fa-chalkboard-user text-amber-300"></i>
+                                <span>FACULTY SHEET 2026-27</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-blue-200"></i>
+                            </a>
+                        </div>
+                        <button onclick="pushDirectToGoogleSheets('2026-27', this)" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-lg text-xs md:text-sm font-black flex items-center space-x-1.5 transition shadow" title="Push 2026-27 schedules to Google Sheets">
+                            <i class="fa-solid fa-cloud-arrow-up text-slate-950"></i>
+                            <span>Push to Google Sheet</span>
+                        </button>
+                    </div>
+
+                    <!-- 2027-28 Outputs Row -->
+                    <div class="flex flex-wrap items-center justify-between p-3.5 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition gap-3">
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <span class="text-xs bg-indigo-100 text-indigo-900 border border-indigo-300 font-black px-2.5 py-1 rounded-lg">2027-28</span>
+                            <a href="https://docs.google.com/spreadsheets/d/15wqwcsSk-ZC7xveuVNhIBGExBswvkpum9LW0Ig2L4Jk/edit?usp=sharing" target="_blank" class="bg-blue-900/80 hover:bg-blue-800 text-white px-3.5 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition border border-blue-400" title="Open Batch Schedules 2027-28">
+                                <i class="fa-solid fa-table text-emerald-400"></i>
+                                <span>BATCH SHEET 2027-28</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-blue-200"></i>
+                            </a>
+                            <a href="https://docs.google.com/spreadsheets/d/1f8-H_Y_8HFE_b8BRpx65BwW3LLaduoYRAuyDN7hDOCI/edit?usp=sharing" target="_blank" class="bg-blue-900/80 hover:bg-blue-800 text-white px-3.5 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center space-x-1.5 transition border border-blue-400" title="Open Faculty Schedules 2027-28">
+                                <i class="fa-solid fa-chalkboard-user text-amber-300"></i>
+                                <span>FACULTY SHEET 2027-28</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-blue-200"></i>
+                            </a>
+                        </div>
+                        <button onclick="pushDirectToGoogleSheets('2027-28', this)" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-lg text-xs md:text-sm font-black flex items-center space-x-1.5 transition shadow" title="Push 2027-28 schedules to Google Sheets">
+                            <i class="fa-solid fa-cloud-arrow-up text-slate-950"></i>
+                            <span>Push to Google Sheet</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PART 3: DOWNLOAD HUB -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm">
+                            <i class="fa-solid fa-download"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-extrabold text-slate-900 uppercase tracking-wide">Part 3: Download Hub</h3>
+                            <p class="text-[11px] text-slate-500">Bulk ZIP packages and individual PDF downloads by Year, Batch, and Faculty.</p>
+                        </div>
+                    </div>
+                    <span class="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">PDF Center</span>
+                </div>
+
+                <div class="p-5 space-y-5">
+                    <!-- Bulk ZIP Archives Section -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-zipper text-indigo-600"></i>
+                            <span>Bulk Downloads (Complete ZIP Archives):</span>
+                        </label>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <!-- 2026-27 Bulk -->
+                            <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded">2026-27</span>
+                                    <span class="text-xs font-bold text-slate-800">All Schedules:</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <a href="/api/download/batch-pdfs?year=2026-27" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                                        <i class="fa-solid fa-file-pdf"></i>
+                                        <span>Batch PDFs (.ZIP)</span>
+                                    </a>
+                                    <a href="/api/download/faculty-pdfs?year=2026-27" class="bg-[#EE2A35] hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                                        <i class="fa-solid fa-user-tie"></i>
+                                        <span>Faculty PDFs (.ZIP)</span>
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- 2027-28 Bulk -->
+                            <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs bg-indigo-100 text-indigo-900 border border-indigo-300 font-bold px-2 py-0.5 rounded">2027-28</span>
+                                    <span class="text-xs font-bold text-slate-800">All Schedules:</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <a href="/api/download/batch-pdfs?year=2027-28" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                                        <i class="fa-solid fa-file-pdf"></i>
+                                        <span>Batch PDFs (.ZIP)</span>
+                                    </a>
+                                    <a href="/api/download/faculty-pdfs?year=2027-28" class="bg-[#EE2A35] hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                                        <i class="fa-solid fa-user-tie"></i>
+                                        <span>Faculty PDFs (.ZIP)</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-200" />
+
+                    <!-- Individual PDF Downloads -->
+                    <div class="space-y-4">
+                        <!-- Line 1: Year + Batches dropdowns -->
+                        <div class="p-4 bg-emerald-50/40 border border-emerald-100 rounded-xl space-y-2">
+                            <label class="block text-xs font-black text-emerald-950 uppercase tracking-wide flex items-center gap-1.5">
+                                <i class="fa-solid fa-graduation-cap text-emerald-600"></i>
+                                <span>Line 1: Download Schedule of Individual Batch in PDF</span>
+                            </label>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-slate-600 mb-0.5">Year:</label>
+                                    <select id="hubBatchYearSelect" onchange="onHubBatchYearChange()" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold w-40 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+                                        <option value="2026-27" selected>2026-27 (Default)</option>
+                                        <option value="2027-28">2027-28</option>
+                                    </select>
+                                </div>
+                                <div class="flex-1 min-w-[240px]">
+                                    <label class="block text-[11px] font-bold text-slate-600 mb-0.5">Batches:</label>
+                                    <select id="hubBatchSelect" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium w-full focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"></select>
+                                </div>
+                                <div class="pt-4">
+                                    <button onclick="downloadHubBatchPDF()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                                        <i class="fa-solid fa-file-pdf"></i>
+                                        <span>Download Batch PDF</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Line 2: Year + Faculties dropdowns -->
+                        <div class="p-4 bg-blue-50/40 border border-blue-100 rounded-xl space-y-2">
+                            <label class="block text-xs font-black text-blue-950 uppercase tracking-wide flex items-center gap-1.5">
+                                <i class="fa-solid fa-chalkboard-user text-[#27348B]"></i>
+                                <span>Line 2: Download Schedule of Individual Faculty in PDF</span>
+                            </label>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-slate-600 mb-0.5">Year:</label>
+                                    <select id="hubFacultyYearSelect" onchange="onHubFacultyYearChange()" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold w-40 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                                        <option value="2026-27" selected>2026-27 (Default)</option>
+                                        <option value="2027-28">2027-28</option>
+                                    </select>
+                                </div>
+                                <div class="flex-1 min-w-[240px]">
+                                    <label class="block text-[11px] font-bold text-slate-600 mb-0.5">Faculties:</label>
+                                    <select id="hubFacultySelect" class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium w-full focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"></select>
+                                </div>
+                                <div class="pt-4">
+                                    <button onclick="downloadHubFacultyPDF()" class="bg-[#27348B] hover:bg-blue-900 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition shadow">
+                                        <i class="fa-solid fa-file-pdf"></i>
+                                        <span>Download Faculty PDF</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- MODAL: MARK AS FINALISED SCHEDULE -->
+        <div id="modalFinalise" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden transform transition-all">
+                <div class="p-5 bg-gradient-to-r from-[#27348B] to-indigo-900 text-white flex justify-between items-center">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-sm font-black">
+                            <i class="fa-solid fa-stamp"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-extrabold">Mark as Finalised Schedule</h3>
+                            <p class="text-[11px] text-blue-200">Permanently save this timetable to Firebase</p>
+                        </div>
+                    </div>
+                    <button onclick="closeFinaliseModal()" class="text-white/70 hover:text-white text-lg"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <input type="hidden" id="finaliseTargetId" value="" />
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Effective Date (DD/MM/YYYY) <span class="text-red-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <input type="text" id="finaliseEffectiveDate" placeholder="e.g. 02/11/2026" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white" />
+                            <span class="absolute right-3 top-2.5 text-slate-400 text-xs font-mono">DD/MM/YYYY</span>
+                        </div>
+                        <div class="flex items-center gap-1.5 mt-2">
+                            <span class="text-[11px] text-slate-400">Quick Picks:</span>
+                            <button type="button" onclick="setQuickDate('next-monday')" class="text-[11px] bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold px-2 py-0.5 rounded border border-indigo-200 transition">Next Monday</button>
+                            <button type="button" onclick="setQuickDate('today')" class="text-[11px] bg-slate-100 text-slate-700 hover:bg-slate-200 font-semibold px-2 py-0.5 rounded border border-slate-300 transition">Today</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Schedule Title / Reference Note
+                        </label>
+                        <input type="text" id="finaliseTitle" placeholder="e.g. Official Master Schedule - Week Starting 02/11/2026" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white" />
+                    </div>
+
+                    <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
+                        <i class="fa-solid fa-circle-info text-amber-600 mr-1"></i>
+                        When finalised, this schedule will be saved to the <b>Finalised Schedules</b> cloud folder and will remain there permanently until deleted manually.
+                    </div>
+                </div>
+                <div class="p-4 bg-slate-50 border-t border-slate-200 flex justify-end space-x-2">
+                    <button onclick="closeFinaliseModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-200 hover:bg-slate-300 rounded-lg transition">Cancel</button>
+                    <button onclick="confirmFinaliseSchedule()" id="btnSubmitFinalise" class="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-md transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-check"></i>
+                        <span>Save as Finalised Schedule</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: CONFIRM DELETE FINALISED SCHEDULE -->
+        <div id="modalDelete" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full overflow-hidden">
+                <div class="p-5 text-center">
+                    <div class="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl mx-auto mb-3">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </div>
+                    <h3 class="text-base font-extrabold text-slate-800">Delete Finalised Schedule?</h3>
+                    <p class="text-xs text-slate-500 mt-1">This will permanently remove this finalised schedule from Firebase Cloud. This action cannot be undone.</p>
+                    <input type="hidden" id="deleteTargetId" value="" />
+                </div>
+                <div class="p-4 bg-slate-50 border-t border-slate-200 flex justify-center space-x-3">
+                    <button onclick="closeDeleteModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-200 hover:bg-slate-300 rounded-lg transition">Cancel</button>
+                    <button onclick="confirmDeleteFinalised()" id="btnConfirmDelete" class="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-lg shadow transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Delete Permanently</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: CONFIRM REVERT TO PAST SCHEDULES -->
+        <div id="modalRevertToPast" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full overflow-hidden">
+                <div class="p-5 text-center">
+                    <div class="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xl mx-auto mb-3">
+                        <i class="fa-solid fa-arrow-rotate-left"></i>
+                    </div>
+                    <h3 class="text-base font-extrabold text-slate-800">Move Back to Past Schedules?</h3>
+                    <p class="text-xs text-slate-500 mt-1">This schedule will be moved from <b>Finalised Schedules</b> back into <b>Past Created Schedules</b>. It will resume following the standard 1-month automatic retention policy from its generation date.</p>
+                    <input type="hidden" id="revertTargetId" value="" />
+                </div>
+                <div class="p-4 bg-slate-50 border-t border-slate-200 flex justify-center space-x-3">
+                    <button onclick="closeRevertModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-200 hover:bg-slate-300 rounded-lg transition">Cancel</button>
+                    <button onclick="confirmRevertToPast()" id="btnConfirmRevert" class="px-4 py-2 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-lg shadow transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-arrow-rotate-left"></i>
+                        <span>Move to Past</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let batchesData = {};
+        let facultiesData = {};
+        let topicsData = [];
+        let currentAcademicYear = "2026-27";
+
+        let yearDataCache = {
+            "2026-27": { batches: [], faculties: [] },
+            "2027-28": { batches: [], faculties: [] }
+        };
+
+        const GOOGLE_SHEET_LINKS = {
+            "2026-27": "https://docs.google.com/spreadsheets/d/1oZIhdOJoo--kWjSYLQUGyWppJaRSc8OAgb_tiT4GVt4/edit?pli=1&gid=270974985#gid=270974985",
+            "2027-28": "https://docs.google.com/spreadsheets/d/1j4ALHK-etY5CyJ1fx1jywi5fle9xMARebiyqq_tWsyI/edit?usp=sharing"
+        };
+
+        async function init() {
+            syncAllYearSelectors(currentAcademicYear);
+            await loadData();
+        }
+
+        function syncAllYearSelectors(newYear) {
+            currentAcademicYear = newYear || "2026-27";
+            const bYr = document.getElementById('batchYearSelect');
+            if (bYr) bYr.value = currentAcademicYear;
+            const fYr = document.getElementById('facultyYearSelect');
+            if (fYr) fYr.value = currentAcademicYear;
+            const hBYr = document.getElementById('hubBatchYearSelect');
+            if (hBYr) hBYr.value = currentAcademicYear;
+            const hFYr = document.getElementById('hubFacultyYearSelect');
+            if (hFYr) hFYr.value = currentAcademicYear;
+        }
+
+        async function onYearChangeFromTab(newYear) {
+            syncAllYearSelectors(newYear);
+            showStatus(true, `📅 Switched active view to Academic Year ${currentAcademicYear}. Loading schedule...`);
+            await loadData();
+            await syncHubDropdownsWithCurrentYear();
+        }
+
+        async function getOrFetchYearData(yr) {
+            if (yr === currentAcademicYear && Object.keys(batchesData).length > 0) {
+                yearDataCache[yr] = {
+                    batches: Object.keys(batchesData).sort(),
+                    faculties: Object.keys(facultiesData).sort()
+                };
+                return yearDataCache[yr];
+            }
+            if (yearDataCache[yr] && yearDataCache[yr].batches.length > 0) {
+                return yearDataCache[yr];
+            }
+            try {
+                const res = await fetch('/api/data?year=' + encodeURIComponent(yr));
+                const data = await res.json();
+                const bKeys = Object.keys(data.batches || {}).sort();
+                const fKeys = Object.keys(data.faculties || {}).sort();
+                yearDataCache[yr] = { batches: bKeys, faculties: fKeys };
+                return yearDataCache[yr];
+            } catch (e) {
+                console.error("Error fetching year data for hub:", e);
+                return { batches: Object.keys(batchesData).sort(), faculties: Object.keys(facultiesData).sort() };
+            }
+        }
+
+        async function populateHubBatchSelect(yr) {
+            const sel = document.getElementById('hubBatchSelect');
+            if (!sel) return;
+            const yData = await getOrFetchYearData(yr);
+            sel.innerHTML = '';
+            yData.batches.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b;
+                opt.textContent = b;
+                sel.appendChild(opt);
+            });
+        }
+
+        async function populateHubFacultySelect(yr) {
+            const sel = document.getElementById('hubFacultySelect');
+            if (!sel) return;
+            const yData = await getOrFetchYearData(yr);
+            sel.innerHTML = '';
+            yData.faculties.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = f;
+                sel.appendChild(opt);
+            });
+        }
+
+        async function syncHubDropdownsWithCurrentYear() {
+            const hubBYr = document.getElementById('hubBatchYearSelect');
+            const hubFYr = document.getElementById('hubFacultyYearSelect');
+            const yrForBatch = hubBYr ? hubBYr.value : currentAcademicYear;
+            const yrForFac = hubFYr ? hubFYr.value : currentAcademicYear;
+            await populateHubBatchSelect(yrForBatch);
+            await populateHubFacultySelect(yrForFac);
+        }
+
+        async function onHubBatchYearChange() {
+            const yr = document.getElementById('hubBatchYearSelect').value;
+            await populateHubBatchSelect(yr);
+        }
+
+        async function onHubFacultyYearChange() {
+            const yr = document.getElementById('hubFacultyYearSelect').value;
+            await populateHubFacultySelect(yr);
+        }
+
+        function downloadHubBatchPDF() {
+            const yr = document.getElementById('hubBatchYearSelect').value;
+            const key = document.getElementById('hubBatchSelect').value;
+            if (!key) {
+                alert("Please select a batch first.");
+                return;
+            }
+            window.location.href = `/api/download/batch-pdf?name=${encodeURIComponent(key)}&year=${encodeURIComponent(yr)}`;
+        }
+
+        function downloadHubFacultyPDF() {
+            const yr = document.getElementById('hubFacultyYearSelect').value;
+            const fac = document.getElementById('hubFacultySelect').value;
+            if (!fac) {
+                alert("Please select a faculty first.");
+                return;
+            }
+            window.location.href = `/api/download/faculty-pdf?name=${encodeURIComponent(fac)}&year=${encodeURIComponent(yr)}`;
+        }
+
+        async function loadData() {
+            try {
+                const res = await fetch('/api/data?year=' + encodeURIComponent(currentAcademicYear));
+                const data = await res.json();
+                batchesData = data.batches || {};
+                facultiesData = data.faculties || {};
+                topicsData = data.topics || [];
+
+                populateBatchSelect();
+                populateFacultySelect();
+                populateTopicsTable();
+
+                yearDataCache[currentAcademicYear] = {
+                    batches: Object.keys(batchesData).sort(),
+                    faculties: Object.keys(facultiesData).sort()
+                };
+                await syncHubDropdownsWithCurrentYear();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function populateBatchSelect() {
+            const sel = document.getElementById('batchSelect');
+            sel.innerHTML = '';
+            const keys = Object.keys(batchesData).sort();
+            keys.forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = k;
+                sel.appendChild(opt);
+            });
+            if (keys.length > 0) renderBatchTimetable();
+        }
+
+        function populateFacultySelect() {
+            const sel = document.getElementById('facultySelect');
+            sel.innerHTML = '';
+            const keys = Object.keys(facultiesData).sort();
+            keys.forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = k;
+                sel.appendChild(opt);
+            });
+            if (keys.length > 0) renderFacultySchedule();
+        }
+
+        function renderBatchTimetable() {
+            const key = document.getElementById('batchSelect').value;
+            const bData = batchesData[key];
+            if (!bData) return;
+
+            const parts = key.split(" - ");
+            const branchName = parts[0] || "";
+            const batchName = parts.slice(1).join(" - ") || "";
+
+            document.getElementById('batchMatrixTitle').innerHTML = `
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded">BRANCH</span>
+                    <span class="font-bold text-[#27348B] text-base">${branchName}</span>
+                    <span class="text-slate-300">|</span>
+                    <span class="text-xs bg-red-100 text-[#EE2A35] font-bold px-2 py-0.5 rounded">BATCH</span>
+                    <span class="font-bold text-[#EE2A35] text-base">${batchName}</span>
+                </div>
+            `;
+            const tbody = document.getElementById('batchMatrixBody');
+            tbody.innerHTML = '';
+
+            const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+
+            bData.rows.forEach(r => {
+                const tr = document.createElement('tr');
+                if (r.is_recess) {
+                    tr.className = "bg-amber-50 font-bold text-amber-800 text-center";
+                    tr.innerHTML = `<td class="p-3 border-r border-slate-200 text-slate-700 text-center">${r.time_label}</td>
+                                    <td colspan="6" class="p-3 tracking-widest uppercase">★ RECESS / BREAK ★</td>`;
+                } else {
+                    let html = `<td class="p-3 border-r border-slate-200 font-semibold text-slate-700 text-center bg-slate-50">${r.time_label}</td>`;
+                    days.forEach(d => {
+                        const cell = r.day_cells[d];
+                        if (cell && cell.is_span_continuation) {
+                            return; // Covered by rowspan from row above
+                        }
+                        const rowspanAttr = (cell && cell.span_count > 1) ? ` rowspan="${cell.span_count}"` : '';
+
+                        if (cell && (cell.type === 'test' || cell.subject === '1 HOUR EXAM' || cell.faculty === 'WEEKLY TEST')) {
+                            const timeText = cell.time_range ? cell.time_range : '1 Hour Exam';
+                            html += `<td${rowspanAttr} class="p-2.5 border-r border-slate-200 text-center bg-amber-50 hover:bg-amber-100 transition align-middle shadow-inner">
+                                        <div class="font-extrabold text-amber-800 text-[11px] tracking-wide">★ WEEKLY TEST ★</div>
+                                        <div class="font-extrabold text-amber-950 text-xs my-0.5">${timeText} (60 mins)</div>
+                                        <div class="text-[10px] text-amber-700 font-semibold uppercase">1 Hour Exam • ${cell.chapter || 'Weekly Syllabus'}</div>
+                                     </td>`;
+                        } else if (cell && cell.type === 'lecture') {
+                            const timeLine = cell.time_range ? `<div class="text-[10px] text-blue-600 font-bold">${cell.time_range}</div>` : '';
+                            html += `<td${rowspanAttr} class="p-2.5 border-r border-slate-200 text-center bg-blue-50/40 hover:bg-blue-100/50 transition align-middle">
+                                        <div class="font-bold text-[#27348B]">${cell.faculty}</div>
+                                        <div class="font-semibold text-[#EE2A35]">${cell.subject}</div>
+                                        ${timeLine}
+                                        <div class="text-[10px] text-slate-500">${cell.chapter} • ${cell.topic}</div>
+                                     </td>`;
+                        } else {
+                            html += `<td class="p-2.5 border-r border-slate-200 text-center text-slate-300">---</td>`;
+                        }
+                    });
+                    tr.innerHTML = html;
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderFacultySchedule() {
+            const fac = document.getElementById('facultySelect').value;
+            const fData = facultiesData[fac];
+            if (!fData) return;
+
+            document.getElementById('facultyMatrixTitle').innerHTML = `
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs bg-blue-100 text-[#27348B] font-bold px-2 py-0.5 rounded">FACULTY</span>
+                    <span class="font-extrabold text-[#27348B] text-base">${fac}</span>
+                    <span class="text-slate-300">|</span>
+                    <span class="text-xs bg-slate-200 text-slate-700 font-medium px-2 py-0.5 rounded">WEEK: 05/10/2026 - 10/10/2026</span>
+                </div>
+            `;
+            const tbody = document.getElementById('facultyMatrixBody');
+            tbody.innerHTML = '';
+
+            const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+
+            fData.rows.forEach(r => {
+                const tr = document.createElement('tr');
+                if (r.is_recess || r.is_lunch_break) {
+                    tr.className = "bg-amber-100/90 border-y-2 border-amber-300 font-extrabold text-amber-900 text-center shadow-inner";
+                    tr.innerHTML = `
+                        <td class="p-2.5 border-r border-amber-300 font-extrabold text-amber-950 bg-amber-200/80 text-xs tracking-wider uppercase">${r.time_label}</td>
+                        <td colspan="6" class="p-2.5 tracking-widest text-xs md:text-sm uppercase font-extrabold text-amber-900">
+                            <span class="inline-flex items-center gap-2">
+                                <i class="fa-solid fa-utensils text-amber-700"></i>
+                                <span>★ LUNCH BREAK (1:00 PM – 3:00 PM) ★</span>
+                                <i class="fa-solid fa-utensils text-amber-700"></i>
+                            </span>
+                        </td>
+                    `;
+                } else {
+                    let html = `<td class="p-3 border-r border-slate-200 font-bold text-slate-700 text-center bg-slate-100">${r.time_label}</td>`;
+                    days.forEach(d => {
+                        const cell = r.day_cells[d];
+                        if (cell && cell.type === 'lecture') {
+                            html += `<td class="p-2.5 border-r border-slate-200 text-center bg-slate-50 hover:bg-blue-50/50 transition">
+                                        <div class="text-[11px] font-bold text-[#EE2A35]">${cell.time_range} <span class="font-normal text-slate-500 text-[9px]">${cell.duration}</span></div>
+                                        <div class="font-bold text-[#27348B]">${cell.center_batch}</div>
+                                        <div class="font-semibold text-slate-800">${cell.subject}</div>
+                                        <div class="text-[10px] text-slate-500">${cell.chapter} • ${cell.topic}</div>
+                                     </td>`;
+                        } else {
+                            html += `<td class="p-2.5 border-r border-slate-200 text-center text-slate-300">---</td>`;
+                        }
+                    });
+                    tr.innerHTML = html;
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        function populateTopicsTable() {
+            const tbody = document.getElementById('topicsTableBody');
+            tbody.innerHTML = '';
+            topicsData.forEach((row, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50";
+                tr.innerHTML = `
+                    <td class="p-2 border-r font-medium text-slate-700">${row.center}</td>
+                    <td class="p-2 border-r text-slate-600">${row.batch}</td>
+                    <td class="p-2 border-r font-semibold text-blue-800">${row.day}</td>
+                    <td class="p-2 border-r text-slate-600">${row.time}</td>
+                    <td class="p-2 border-r font-semibold text-slate-800">${row.subject}</td>
+                    <td class="p-2 border-r text-slate-700 font-medium">${row.faculty}</td>
+                    <td class="p-1 border-r">
+                        <input type="text" data-idx="${idx}" data-field="chapter" value="${row.chapter || ''}" class="w-full bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs focus:bg-white focus:ring-1 focus:ring-amber-500 outline-none">
+                    </td>
+                    <td class="p-1">
+                        <input type="text" data-idx="${idx}" data-field="topic" value="${row.topic || ''}" class="w-full bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs focus:bg-white focus:ring-1 focus:ring-amber-500 outline-none">
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function saveTopics() {
+            const btn = document.getElementById('btnSaveTopics');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Saving & Baking PDFs (${currentAcademicYear})...</span>`;
+
+            const inputs = document.querySelectorAll('#topicsTableBody input');
+            inputs.forEach(inp => {
+                const idx = inp.getAttribute('data-idx');
+                const fld = inp.getAttribute('data-field');
+                topicsData[idx][fld] = inp.value;
+            });
+
+            try {
+                const res = await fetch('/api/topics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topics: topicsData, year: currentAcademicYear })
+                });
+                const data = await res.json();
+                showStatus(true, data.message || `Chapters & Topics saved and baked into all PDFs for ${currentAcademicYear}!`);
+                await loadData();
+            } catch (e) {
+                showStatus(false, "Failed to save: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> <span>Save & Bake into PDFs</span>`;
+            }
+        }
+
+        async function syncGoogleSheets(targetYear = null, btn = null) {
+            const yr = targetYear || currentAcademicYear;
+            let originalHtml = null;
+            if (btn) {
+                originalHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Syncing ${yr} from Google Sheets...</span>`;
+            }
+
+            try {
+                const res = await fetch('/api/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ year: yr })
+                });
+                const text = await res.text();
+                let data = null;
+                try {
+                    data = JSON.parse(text);
+                } catch (jsonErr) {
+                    throw new Error(res.ok ? "Invalid server response" : `Server error (${res.status}): ${text.substring(0, 150) || res.statusText}`);
+                }
+                if (!res.ok || data.success === false) {
+                    showStatus(false, `Failed to sync ${yr}: ` + (data.message || 'Unknown error'));
+                } else {
+                    showStatus(true, data.message || `Master requirements and Standing Rules for ${yr} synced live from Google Sheets!`);
+                    if (yr === currentAcademicYear) {
+                        await loadData();
+                    }
+                }
+            } catch (e) {
+                showStatus(false, `Failed to sync ${yr}: ` + e.message);
+            } finally {
+                if (btn && originalHtml) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                }
+            }
+        }
+
+        async function generateSchedule() {
+            const btn = document.getElementById('btnGenerate');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Solving ${currentAcademicYear} (~60-90s)...</span>`;
+
+            try {
+                const res = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ year: currentAcademicYear })
+                });
+                const text = await res.text();
+                let data = null;
+                try {
+                    data = JSON.parse(text);
+                } catch (jsonErr) {
+                    throw new Error(res.ok ? "Invalid server response" : `Server error (${res.status}): ${text.substring(0, 150) || res.statusText}`);
+                }
+                if (!res.ok || data.success === false) {
+                    showStatus(false, "Generation error: " + (data.message || 'Unknown error'));
+                } else {
+                    showStatus(true, data.message || `New timetable for ${currentAcademicYear} generated with zero overlaps and exact travel buffers!`);
+                    await loadData();
+                    try {
+                        await autoArchiveToFirebase();
+                    } catch (arcErr) {
+                        console.warn("Auto-archive notice:", arcErr);
+                    }
+                }
+            } catch (e) {
+                showStatus(false, "Generation error: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-bolt"></i> <span>Generate Schedule</span>`;
+            }
+        }
+
+        function switchTab(tab) {
+            document.getElementById('tabBatches').classList.toggle('hidden', tab !== 'batches');
+            document.getElementById('tabFaculties').classList.toggle('hidden', tab !== 'faculties');
+            document.getElementById('tabTopics').classList.toggle('hidden', tab !== 'topics');
+            document.getElementById('tabAi').classList.toggle('hidden', tab !== 'ai');
+            document.getElementById('tabLibrary').classList.toggle('hidden', tab !== 'library');
+            document.getElementById('tabImportantLinks').classList.toggle('hidden', tab !== 'links');
+
+            document.getElementById('tabBtnBatches').className = tab === 'batches' ? 'pb-3 text-sm flex items-center space-x-2 active-tab' : 'pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700';
+            document.getElementById('tabBtnFaculties').className = tab === 'faculties' ? 'pb-3 text-sm flex items-center space-x-2 active-tab' : 'pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700';
+            document.getElementById('tabBtnTopics').className = tab === 'topics' ? 'pb-3 text-sm flex items-center space-x-2 active-tab' : 'pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700';
+            document.getElementById('tabBtnAi').className = tab === 'ai' ? 'pb-3 text-sm flex items-center space-x-2 active-tab' : 'pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700';
+            document.getElementById('tabBtnLibrary').className = tab === 'library' ? 'pb-3 text-sm flex items-center space-x-2 active-tab' : 'pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700';
+            document.getElementById('tabBtnLinks').className = tab === 'links' ? 'pb-3 text-sm flex items-center space-x-2 active-tab' : 'pb-3 text-sm flex items-center space-x-2 text-slate-500 hover:text-slate-700';
+
+            if (tab === 'library') {
+                fetchAndRenderLibrary();
+            }
+            if (tab === 'links') {
+                syncHubDropdownsWithCurrentYear();
+            }
+        }
+
+        function appendUserMessage(text) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = "flex items-start justify-end space-x-3";
+            div.innerHTML = `
+                <div class="bg-[#27348B] text-white rounded-2xl rounded-tr-none p-3 shadow-sm text-xs md:text-sm max-w-2xl leading-relaxed">
+                    ${escapeHtml(text)}
+                </div>
+                <div class="w-8 h-8 rounded-full bg-slate-300 text-slate-700 flex items-center justify-center text-xs font-bold flex-shrink-0 shadow">
+                    <i class="fa-solid fa-user"></i>
+                </div>
+            `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function appendAiMessage(markdownText, isError = false, rescheduleData = null) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = "flex items-start space-x-3";
+            const htmlContent = window.marked ? marked.parse(markdownText) : markdownText;
+            div.innerHTML = `
+                <div class="w-8 h-8 rounded-full ${isError ? 'bg-rose-600' : 'bg-[#27348B]'} text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow">
+                    ${isError ? '<i class="fa-solid fa-triangle-exclamation"></i>' : 'AI'}
+                </div>
+                <div class="bg-white border ${isError ? 'border-rose-300 bg-rose-50/50' : 'border-slate-200'} rounded-2xl rounded-tl-none p-3.5 shadow-sm text-xs text-slate-800 max-w-3xl leading-relaxed ai-chat-content overflow-x-auto">
+                    ${htmlContent}
+                </div>
+            `;
+
+            if (rescheduleData && rescheduleData.token) {
+                let actionHtml = '';
+                if (rescheduleData.valid) {
+                    actionHtml = `
+                        <div class="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center gap-2" id="actionBar_${rescheduleData.token}">
+                            <button onclick="applyRescheduleProposal('${rescheduleData.token}')" id="btnApply_${rescheduleData.token}" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs shadow flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-check-circle"></i>
+                                <span>Approve & Lock Changes</span>
+                            </button>
+                            <button onclick="suggestAdjustment('${rescheduleData.token}')" class="bg-blue-50 hover:bg-blue-100 text-[#27348B] border border-blue-200 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-pen"></i>
+                                <span>Suggest Modification</span>
+                            </button>
+                            <button onclick="discardProposal('${rescheduleData.token}')" id="btnDiscard_${rescheduleData.token}" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition shadow-sm">
+                                <i class="fa-solid fa-trash-can"></i>
+                                <span>Discard Proposal</span>
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    actionHtml = `
+                        <div class="mt-4 pt-3 border-t border-rose-200 flex flex-wrap items-center gap-2" id="actionBar_${rescheduleData.token}">
+                            <span class="text-xs text-rose-700 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Cannot apply until conflict is resolved.</span>
+                            <button onclick="suggestAdjustment('${rescheduleData.token}')" class="bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-sliders"></i>
+                                <span>Suggest Alternative Time / Teacher</span>
+                            </button>
+                            <button onclick="discardProposal('${rescheduleData.token}')" id="btnDiscard_${rescheduleData.token}" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition shadow-sm">
+                                <i class="fa-solid fa-trash-can"></i>
+                                <span>Discard Proposal</span>
+                            </button>
+                        </div>
+                    `;
+                }
+                div.querySelector('.ai-chat-content').insertAdjacentHTML('beforeend', actionHtml);
+            }
+
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function applyRescheduleProposal(token) {
+            const bar = document.getElementById(`actionBar_${token}`);
+            const btn = document.getElementById(`btnApply_${token}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locking & Updating PDFs...`;
+            }
+            try {
+                const res = await fetch('/api/reschedule/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (bar) bar.innerHTML = `<span class="text-xs text-emerald-700 font-bold flex items-center gap-1.5"><i class="fa-solid fa-lock"></i> Changes approved and locked into master schedule!</span>`;
+                    showStatus(true, data.message);
+                    appendAiMessage(`🎉 **${data.message}**\n\n*The schedule is now locked. Master Timetables, Google Sheets, all Batch PDFs, Faculty PDFs, and Chapter & Topic Editor are synchronized.*`);
+                    await loadData();
+                } else {
+                    showStatus(false, data.message);
+                    appendAiMessage(`❌ Failed to apply changes: ${data.message}`, true);
+                }
+            } catch (e) {
+                showStatus(false, e.message);
+                appendAiMessage(`❌ Error applying schedule change: ${e.message}`, true);
+            }
+        }
+
+        function suggestAdjustment(token) {
+            const input = document.getElementById('chatInput');
+            input.value = "Adjust the proposed change to ";
+            input.focus();
+        }
+
+        async function discardProposal(token) {
+            const bar = document.getElementById(`actionBar_${token}`);
+            if (bar) {
+                bar.innerHTML = `<span class="text-xs text-rose-600 font-semibold italic flex items-center gap-1"><i class="fa-solid fa-ban"></i> Proposal discarded. No changes made.</span>`;
+            }
+            try {
+                await fetch('/api/reschedule/discard', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                showStatus(true, "Proposal discarded. Timetable remains unchanged.");
+                appendAiMessage("🗑️ **Proposal discarded.** The proposed schedule changes have been cancelled and no modifications were made to the schedule.");
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function appendLoadingMessage() {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.id = "chatLoadingMsg";
+            div.className = "flex items-start space-x-3";
+            div.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-[#27348B] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow animate-pulse">
+                    <i class="fa-solid fa-spinner fa-spin"></i>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3.5 shadow-sm text-xs text-slate-500 italic max-w-md">
+                    Gemini AI is analyzing master schedule...
+                </div>
+            `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function removeLoadingMessage() {
+            const el = document.getElementById('chatLoadingMsg');
+            if (el) el.remove();
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag] || tag));
+        }
+
+        async function submitChat() {
+            const input = document.getElementById('chatInput');
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            input.value = '';
+            appendUserMessage(msg);
+            appendLoadingMessage();
+
+            const btn = document.getElementById('btnSendChat');
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                });
+                const data = await res.json();
+                removeLoadingMessage();
+                if (data.reply) {
+                    appendAiMessage(data.reply, false, data.reschedule_data);
+                } else {
+                    appendAiMessage("Sorry, I could not generate a response. Please try again.", true);
+                }
+            } catch (e) {
+                removeLoadingMessage();
+                appendAiMessage("Network or Server error: " + e.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function sendQuickPrompt(promptText) {
+            switchTab('ai');
+            const input = document.getElementById('chatInput');
+            input.value = promptText;
+            submitChat();
+        }
+
+        async function runAiDiagnosis() {
+            switchTab('ai');
+            appendUserMessage("Diagnose timetable feasibility & capacity bottlenecks");
+            appendLoadingMessage();
+
+            const btn = document.getElementById('btnDiagnose');
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/diagnose', { method: 'POST' });
+                const data = await res.json();
+                removeLoadingMessage();
+                let output = "";
+                if (data.report && data.report.includes("OVERLOAD")) {
+                    output = `### ⚠️ Capacity Audit Warnings\n\`\`\`\n${data.report}\n\`\`\`\n\n${data.explanation || ''}`;
+                } else {
+                    output = `### ✅ Schedule Capacity Health: Optimal\n\n${data.report || 'All constraints are feasible.'}\n\n${data.explanation || ''}`;
+                }
+                appendAiMessage(output);
+            } catch (e) {
+                removeLoadingMessage();
+                appendAiMessage("Failed to run diagnosis: " + e.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function showStatus(success, msg) {
+            const box = document.getElementById('statusBox');
+            box.className = success ? "mb-6 p-4 rounded-xl shadow-sm border text-sm flex items-center justify-between bg-emerald-50 border-emerald-200 text-emerald-800"
+                                    : "mb-6 p-4 rounded-xl shadow-sm border text-sm flex items-center justify-between bg-rose-50 border-rose-200 text-rose-800";
+            document.getElementById('statusIcon').innerHTML = success ? `<i class="fa-solid fa-circle-check text-emerald-600"></i>` : `<i class="fa-solid fa-triangle-exclamation text-rose-600"></i>`;
+            document.getElementById('statusMessage').textContent = msg;
+            box.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            document.getElementById('statusBox').classList.add('hidden');
+        }
+
+        function downloadSelectedBatchPDF() {
+            const key = document.getElementById('batchSelect').value;
+            if (!key) {
+                alert("Please select a batch first.");
+                return;
+            }
+            window.location.href = `/api/download/batch-pdf?name=${encodeURIComponent(key)}&year=${encodeURIComponent(currentAcademicYear)}`;
+        }
+
+        function downloadSelectedFacultyPDF() {
+            const fac = document.getElementById('facultySelect').value;
+            if (!fac) {
+                alert("Please select a faculty first.");
+                return;
+            }
+            window.location.href = `/api/download/faculty-pdf?name=${encodeURIComponent(fac)}&year=${encodeURIComponent(currentAcademicYear)}`;
+        }
+
+        async function pushDirectToGoogleSheets(targetYear = null, btn = null) {
+            const yr = targetYear || currentAcademicYear;
+            let originalHtml = null;
+            if (btn) {
+                originalHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-slate-950"></i> <span>Pushing ${yr}...</span>`;
+            }
+
+            const batchUrl = localStorage.getItem('batchWebhookUrl') || '';
+            const facultyUrl = localStorage.getItem('facultyWebhookUrl') || '';
+
+            try {
+                const res = await fetch('/api/export/push_to_sheets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        year: yr,
+                        batch_webhook_url: batchUrl,
+                        faculty_webhook_url: facultyUrl
+                    })
+                });
+                const data = await res.json();
+
+                if (batchUrl) {
+                    try { fetch(batchUrl, { method: 'POST', mode: 'no-cors' }); } catch (e) {}
+                }
+                if (facultyUrl) {
+                    try { fetch(facultyUrl, { method: 'POST', mode: 'no-cors' }); } catch (e) {}
+                }
+
+                if (data.success) {
+                    showStatus(true, `🎉 Successfully pushed ${yr} schedules to Google Sheets! Both Batch & Faculty tabs updated.`);
+                } else if (batchUrl || facultyUrl) {
+                    showStatus(true, `🎉 Update signal for ${yr} sent to Google Sheets! Batch & Faculty tabs updating.`);
+                } else {
+                    showStatus(false, data.message || "Google Sheets Web App URLs are not yet configured on the server. Please provide the Web App URLs to Antigravity in chat.");
+                }
+            } catch (err) {
+                showStatus(false, `Push failed for ${yr}: ` + err.message);
+            } finally {
+                if (btn && originalHtml) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                }
+            }
+        }
+
+        // ==========================================
+        // FIREBASE TIMETABLE CLOUD LIBRARY
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyD2YQIfRJtrIYakVDJ6X5sDSYp-geY1Iis",
+            authDomain: "uwill-students.firebaseapp.com",
+            projectId: "uwill-students",
+            storageBucket: "uwill-students.firebasestorage.app",
+            messagingSenderId: "275328029331",
+            appId: "1:275328029331:web:db80219a3dde9b7239f366"
+        };
+
+        let firestoreDb = null;
+        function getDb() {
+            if (!firestoreDb && window.firebase) {
+                try {
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    firestoreDb = firebase.firestore();
+                } catch (err) {
+                    console.warn("Firebase init note:", err);
+                }
+            }
+            return firestoreDb;
+        }
+
+        let cachedPastSchedules = [];
+        let cachedFinalisedSchedules = [];
+
+        function formatDDMMYYYY(d) {
+            const date = new Date(d);
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
+        function getNextMondayFormatted() {
+            const d = new Date();
+            const day = d.getDay();
+            const diff = (day === 0 ? 1 : (8 - day)); // Days until next Monday
+            d.setDate(d.getDate() + diff);
+            return formatDDMMYYYY(d);
+        }
+
+        async function autoArchiveToFirebase() {
+            try {
+                const db = getDb();
+                if (!db) return;
+
+                const curRes = await fetch('/api/library/current?year=' + encodeURIComponent(currentAcademicYear));
+                if (!curRes.ok) return;
+                const cur = await curRes.json();
+                if (!cur.topics || cur.topics.length === 0) return;
+
+                const now = new Date();
+                const nowEpoch = now.getTime();
+                const docId = `sched_${nowEpoch}`;
+
+                const scheduleDoc = {
+                    id: docId,
+                    title: cur.title || `Generated Schedule (${currentAcademicYear}) - ${now.toLocaleString('en-GB')}`,
+                    academicYear: cur.academicYear || currentAcademicYear,
+                    folder: "past",
+                    createdAt: now.toISOString(),
+                    createdEpoch: nowEpoch,
+                    finalisedDate: null,
+                    finalisedAt: null,
+                    summary: cur.summary || {
+                        totalBatches: Object.keys(batchesData).length,
+                        totalFaculties: Object.keys(facultiesData).length,
+                        totalSlots: cur.topics.length
+                    },
+                    topics: cur.topics
+                };
+
+                await db.collection("timetable_library").doc(docId).set(scheduleDoc);
+                console.log("Auto-archived schedule to Firebase Past Created Schedules:", docId);
+            } catch (err) {
+                console.error("autoArchiveToFirebase error:", err);
+            }
+        }
+
+        async function fetchAndRenderLibrary() {
+            const pastTbody = document.getElementById('pastSchedulesBody');
+            const finTbody = document.getElementById('finalisedSchedulesBody');
+
+            if (pastTbody) pastTbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400 italic"><i class="fa-solid fa-spinner fa-spin text-lg mb-1 block"></i> Fetching Past Schedules from Firebase...</td></tr>`;
+            if (finTbody) finTbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400 italic"><i class="fa-solid fa-spinner fa-spin text-lg mb-1 block"></i> Fetching Finalised Schedules from Firebase...</td></tr>`;
+
+            try {
+                const db = getDb();
+                if (!db) {
+                    throw new Error("Firebase SDK could not initialize.");
+                }
+
+                const snapshot = await db.collection("timetable_library").get();
+                const docs = [];
+                snapshot.forEach(docSnap => {
+                    docs.push({ id: docSnap.id, ...docSnap.data() });
+                });
+
+                // Separate into past and finalised
+                const past = [];
+                const finalised = [];
+                docs.forEach(d => {
+                    if (d.folder === "finalised") {
+                        finalised.push(d);
+                    } else {
+                        past.push(d);
+                    }
+                });
+
+                // 1-MONTH AUTOMATIC DELETION FOR PAST CREATED SCHEDULES (Chronological Order)
+                const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000; // 30 calendar days
+                const now = Date.now();
+                const expiredPast = [];
+                const activePast = [];
+
+                past.forEach(p => {
+                    const epoch = p.createdEpoch || (p.createdAt ? new Date(p.createdAt).getTime() : 0);
+                    if (epoch > 0 && (now - epoch > ONE_MONTH_MS)) {
+                        expiredPast.push(p);
+                    } else {
+                        activePast.push(p);
+                    }
+                });
+
+                // Delete expired in chronological order (oldest first)
+                if (expiredPast.length > 0) {
+                    expiredPast.sort((a, b) => (a.createdEpoch || 0) - (b.createdEpoch || 0));
+                    for (const exp of expiredPast) {
+                        try {
+                            await db.collection("timetable_library").doc(exp.id).delete();
+                            console.log("Auto-deleted expired past schedule (>1 month):", exp.id);
+                        } catch (delErr) {
+                            console.error("Auto-delete error for", exp.id, delErr);
+                        }
+                    }
+                }
+
+                // Sort active past schedules (newest first for comfortable display)
+                activePast.sort((a, b) => (b.createdEpoch || 0) - (a.createdEpoch || 0));
+                // Sort finalised schedules (newest finalised first)
+                finalised.sort((a, b) => {
+                    const tA = a.finalisedAt ? new Date(a.finalisedAt).getTime() : (a.createdEpoch || 0);
+                    const tB = b.finalisedAt ? new Date(b.finalisedAt).getTime() : (b.createdEpoch || 0);
+                    return tB - tA;
+                });
+
+                cachedPastSchedules = activePast;
+                cachedFinalisedSchedules = finalised;
+
+                const pb = document.getElementById('pastCountBadge');
+                const fb = document.getElementById('finalisedCountBadge');
+                if (pb) pb.textContent = activePast.length;
+                if (fb) fb.textContent = finalised.length;
+
+                renderPastSchedulesTable(activePast);
+                renderFinalisedSchedulesTable(finalised);
+
+            } catch (err) {
+                console.error("fetchAndRenderLibrary error:", err);
+                if (pastTbody) pastTbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-rose-600 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Error loading from Firebase: ${escapeHtml(err.message)}</td></tr>`;
+                if (finTbody) finTbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-rose-600 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Error loading from Firebase: ${escapeHtml(err.message)}</td></tr>`;
+            }
+        }
+
+        function renderPastSchedulesTable(items) {
+            const tbody = document.getElementById('pastSchedulesBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (items.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="p-8 text-center text-slate-400">
+                            <i class="fa-solid fa-folder-open text-2xl mb-2 text-slate-300 block"></i>
+                            <span class="font-medium text-xs">No past schedules found in the last 1 month.</span>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Click "Generate Schedule" or "Save Current" to create and store a timetable in the library.</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            const now = Date.now();
+            const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50/80 transition";
+
+                const epoch = item.createdEpoch || (item.createdAt ? new Date(item.createdAt).getTime() : 0);
+                const createdDate = item.createdAt ? new Date(item.createdAt) : new Date(epoch);
+                const dateStr = createdDate.toLocaleString('en-GB', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: true
+                });
+
+                // Retention countdown
+                const msRemaining = (epoch + ONE_MONTH_MS) - now;
+                const daysRemaining = Math.max(0, Math.ceil(msRemaining / (24 * 60 * 60 * 1000)));
+
+                const sm = item.summary || {};
+                const bCount = sm.totalBatches || 36;
+                const fCount = sm.totalFaculties || 27;
+                const sCount = sm.totalSlots || (item.topics ? item.topics.length : 0);
+
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-slate-800">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-regular fa-calendar-check text-blue-600"></i>
+                            <span>${dateStr}</span>
+                        </div>
+                    </td>
+                    <td class="p-3">
+                        <div class="flex items-center gap-1.5 mb-0.5">
+                            <span class="inline-flex items-center bg-amber-100 text-amber-900 border border-amber-300 font-black text-[10px] px-1.5 py-0.5 rounded shadow-2xs">${item.academicYear || '2026-27'}</span>
+                            <span class="font-bold text-slate-900 text-xs">${escapeHtml(item.title || 'Master Schedule')}</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">ID: ${item.id}</div>
+                    </td>
+                    <td class="p-3 text-center">
+                        <span class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-semibold">
+                            ${bCount} Batches • ${fCount} Faculties • ${sCount} Slots
+                        </span>
+                    </td>
+                    <td class="p-3 text-center">
+                        <span class="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
+                            <i class="fa-solid fa-clock-rotate-left text-amber-600"></i>
+                            <span>Auto-deletes in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}</span>
+                        </span>
+                    </td>
+                    <td class="p-3 text-center">
+                        <div class="flex items-center justify-center gap-2">
+                            <button onclick="loadScheduleToViewer('${item.id}', this)" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition" title="Load this schedule into the active viewer">
+                                <i class="fa-solid fa-eye"></i>
+                                <span>Load in Viewer</span>
+                            </button>
+                            <button onclick="openFinaliseModalForPast('${item.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition" title="Mark this schedule as Finalised">
+                                <i class="fa-solid fa-stamp"></i>
+                                <span>Finalise</span>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderFinalisedSchedulesTable(items) {
+            const tbody = document.getElementById('finalisedSchedulesBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (items.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="p-8 text-center text-slate-400">
+                            <i class="fa-solid fa-shield-halved text-2xl mb-2 text-slate-300 block"></i>
+                            <span class="font-medium text-xs">No finalised schedules stored yet.</span>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Click "Mark Current as Finalised" or finalise any past schedule to store it permanently on Firebase.</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-emerald-50/40 transition";
+
+                const finDate = item.finalisedDate || formatDDMMYYYY(item.finalisedAt || item.createdAt || new Date());
+                const finTime = item.finalisedAt ? new Date(item.finalisedAt).toLocaleString('en-GB', {
+                    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
+                }) : 'Official';
+
+                const sm = item.summary || {};
+                const bCount = sm.totalBatches || 36;
+                const fCount = sm.totalFaculties || 27;
+                const sCount = sm.totalSlots || (item.topics ? item.topics.length : 0);
+
+                tr.innerHTML = `
+                    <td class="p-3 text-center">
+                        <span class="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs px-3 py-1 rounded-full shadow-sm">
+                            <i class="fa-solid fa-certificate text-emerald-600"></i>
+                            <span>Finalised from: ${finDate}</span>
+                        </span>
+                    </td>
+                    <td class="p-3">
+                        <div class="flex items-center gap-1.5 mb-0.5">
+                            <span class="inline-flex items-center bg-amber-100 text-amber-900 border border-amber-300 font-black text-[10px] px-1.5 py-0.5 rounded shadow-2xs">${item.academicYear || '2026-27'}</span>
+                            <span class="font-extrabold text-[#27348B] text-xs">${escapeHtml(item.title || 'Official Finalised Schedule')}</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400">ID: ${item.id}</div>
+                    </td>
+                    <td class="p-3">
+                        <div class="text-[11px] font-medium text-slate-700">Marked: ${finTime}</div>
+                        <div class="text-[10px] text-slate-400">Created: ${item.createdAt ? formatDDMMYYYY(item.createdAt) : '---'}</div>
+                    </td>
+                    <td class="p-3 text-center">
+                        <span class="inline-flex items-center gap-1 bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-semibold shadow-2xs">
+                            ${bCount} Batches • ${fCount} Faculties • ${sCount} Slots
+                        </span>
+                    </td>
+                    <td class="p-3 text-center">
+                        <div class="flex items-center justify-center gap-2">
+                            <button onclick="loadScheduleToViewer('${item.id}', this)" class="bg-[#27348B] hover:bg-blue-900 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition" title="Restore and view this schedule">
+                                <i class="fa-solid fa-eye"></i>
+                                <span>Load in Viewer</span>
+                            </button>
+                            <button onclick="downloadMasterExcelForSchedule('${item.id}', this)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition" title="Download Master Excel">
+                                <i class="fa-solid fa-file-excel"></i>
+                                <span>Master Excel</span>
+                            </button>
+                            <button onclick="openRevertModal('${item.id}')" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition" title="Bring this finalised schedule back to Past Created Schedules">
+                                <i class="fa-solid fa-arrow-rotate-left"></i>
+                                <span>Move to Past</span>
+                            </button>
+                            <button onclick="openDeleteModal('${item.id}')" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm" title="Permanently delete from Firebase">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openFinaliseModalForActive() {
+            document.getElementById('finaliseTargetId').value = "active";
+            document.getElementById('finaliseEffectiveDate').value = getNextMondayFormatted();
+            document.getElementById('finaliseTitle').value = `Official Schedule (from ${getNextMondayFormatted()})`;
+            document.getElementById('modalFinalise').classList.remove('hidden');
+        }
+
+        function openFinaliseModalForPast(id) {
+            document.getElementById('finaliseTargetId').value = id;
+            const item = cachedPastSchedules.find(p => p.id === id);
+            const defaultDate = getNextMondayFormatted();
+            document.getElementById('finaliseEffectiveDate').value = defaultDate;
+            document.getElementById('finaliseTitle').value = item && item.title ? item.title : `Official Schedule (from ${defaultDate})`;
+            document.getElementById('modalFinalise').classList.remove('hidden');
+        }
+
+        function closeFinaliseModal() {
+            document.getElementById('modalFinalise').classList.add('hidden');
+        }
+
+        function setQuickDate(type) {
+            const input = document.getElementById('finaliseEffectiveDate');
+            if (type === 'today') {
+                input.value = formatDDMMYYYY(new Date());
+            } else if (type === 'next-monday') {
+                input.value = getNextMondayFormatted();
+            }
+        }
+
+        async function confirmFinaliseSchedule() {
+            const targetId = document.getElementById('finaliseTargetId').value;
+            const dateVal = document.getElementById('finaliseEffectiveDate').value.trim();
+            const titleVal = document.getElementById('finaliseTitle').value.trim();
+
+            const dateRegex = /^(0[1-9]|[12][0-9]|3[01])\/(0[1-9]|1[012])\/(20\d\d)$/;
+            if (!dateRegex.test(dateVal)) {
+                alert("Please enter a valid effective date in DD/MM/YYYY format (e.g. 02/11/2026).");
+                return;
+            }
+
+            const btn = document.getElementById('btnSubmitFinalise');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+
+            try {
+                const db = getDb();
+                if (!db) throw new Error("Firebase is not initialized.");
+
+                if (targetId === "active") {
+                    // Fetch current schedule payload
+                    const curRes = await fetch('/api/library/current?year=' + encodeURIComponent(currentAcademicYear));
+                    if (!curRes.ok) throw new Error("No active schedule found to finalise.");
+                    const cur = await curRes.json();
+
+                    const now = new Date();
+                    const nowEpoch = now.getTime();
+                    const newId = `finalised_${nowEpoch}`;
+
+                    const finalDoc = {
+                        id: newId,
+                        title: titleVal || `Official Finalised Schedule (${currentAcademicYear} from ${dateVal})`,
+                        academicYear: cur.academicYear || currentAcademicYear,
+                        folder: "finalised",
+                        createdAt: now.toISOString(),
+                        createdEpoch: nowEpoch,
+                        finalisedDate: dateVal,
+                        finalisedAt: now.toISOString(),
+                        summary: cur.summary || {
+                            totalBatches: Object.keys(batchesData).length,
+                            totalFaculties: Object.keys(facultiesData).length,
+                            totalSlots: cur.topics.length
+                        },
+                        topics: cur.topics
+                    };
+
+                    await db.collection("timetable_library").doc(newId).set(finalDoc);
+                } else {
+                    // Update existing past schedule in Firebase
+                    const updatePayload = {
+                        folder: "finalised",
+                        finalisedDate: dateVal,
+                        finalisedAt: new Date().toISOString()
+                    };
+                    if (titleVal) updatePayload.title = titleVal;
+
+                    await db.collection("timetable_library").doc(targetId).update(updatePayload);
+                }
+
+                closeFinaliseModal();
+                showStatus(true, `🎉 Schedule marked as Finalised from ${dateVal}! Saved permanently in Firebase.`);
+                switchTab('library');
+                await fetchAndRenderLibrary();
+            } catch (err) {
+                alert("Failed to finalise schedule: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-check"></i> <span>Save as Finalised Schedule</span>`;
+            }
+        }
+
+        function openDeleteModal(scheduleId) {
+            document.getElementById('deleteTargetId').value = scheduleId;
+            document.getElementById('modalDelete').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('modalDelete').classList.add('hidden');
+        }
+
+        async function confirmDeleteFinalised() {
+            const id = document.getElementById('deleteTargetId').value;
+            if (!id) return;
+
+            const btn = document.getElementById('btnConfirmDelete');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Deleting...`;
+
+            try {
+                const db = getDb();
+                if (!db) throw new Error("Firebase is not initialized.");
+
+                await db.collection("timetable_library").doc(id).delete();
+                closeDeleteModal();
+                showStatus(true, "🗑️ Finalised schedule permanently deleted from Firebase.");
+                await fetchAndRenderLibrary();
+            } catch (err) {
+                alert("Failed to delete schedule: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-trash-can"></i> <span>Delete Permanently</span>`;
+            }
+        }
+
+        function openRevertModal(scheduleId) {
+            document.getElementById('revertTargetId').value = scheduleId;
+            document.getElementById('modalRevertToPast').classList.remove('hidden');
+        }
+
+        function closeRevertModal() {
+            document.getElementById('modalRevertToPast').classList.add('hidden');
+        }
+
+        async function confirmRevertToPast() {
+            const id = document.getElementById('revertTargetId').value;
+            if (!id) return;
+
+            const btn = document.getElementById('btnConfirmRevert');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Moving...`;
+
+            try {
+                const db = getDb();
+                if (!db) throw new Error("Firebase is not initialized.");
+
+                await db.collection("timetable_library").doc(id).update({
+                    folder: "past",
+                    finalisedDate: null,
+                    finalisedAt: null
+                });
+
+                closeRevertModal();
+                showStatus(true, "↩️ Finalised schedule successfully moved back to Past Created Schedules!");
+                await fetchAndRenderLibrary();
+            } catch (err) {
+                alert("Failed to move schedule back to past: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-arrow-rotate-left"></i> <span>Move to Past</span>`;
+            }
+        }
+
+        async function loadScheduleToViewer(scheduleId, btn = null) {
+            let item = cachedPastSchedules.find(s => s.id === scheduleId) ||
+                       cachedFinalisedSchedules.find(s => s.id === scheduleId);
+
+            if (!item) {
+                try {
+                    const db = getDb();
+                    if (db) {
+                        const snap = await db.collection("timetable_library").doc(scheduleId).get();
+                        if (snap.exists) item = snap.data();
+                    }
+                } catch (e) {}
+            }
+
+            if (!item || !item.topics || item.topics.length === 0) {
+                alert("Schedule data could not be loaded from Firebase.");
+                return;
+            }
+
+            if (item.academicYear) {
+                syncAllYearSelectors(item.academicYear);
+            }
+
+            let originalBtnHtml = null;
+            if (btn) {
+                originalBtnHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Loading...</span>`;
+            }
+
+            showStatus(true, `Loading '${item.title || item.id}' (${item.academicYear || currentAcademicYear}) into active viewer...`);
+
+            try {
+                const res = await fetch('/api/library/load', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topics: item.topics,
+                        academicYear: item.academicYear || currentAcademicYear,
+                        effective_from: item.finalisedDate || (item.academicYear === '2027-28' ? '04/10/2027' : '05/10/2026')
+                    })
+                });
+                const data = await res.json();
+                if (data.success && data.batches) {
+                    batchesData = data.batches;
+                    facultiesData = data.faculties;
+                    topicsData = data.topics;
+                    populateBatchSelect();
+                    populateFacultySelect();
+                    populateTopicsTable();
+                    switchTab('batches');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    showStatus(true, `🎉 Schedule '${item.title || item.id}' (${item.academicYear || currentAcademicYear}) successfully loaded into active viewer!`);
+                } else if (data.success) {
+                    await loadData();
+                    switchTab('batches');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    showStatus(true, `🎉 Schedule '${item.title || item.id}' successfully loaded!`);
+                } else {
+                    showStatus(false, "Failed to load schedule: " + (data.message || "Unknown error"));
+                }
+            } catch (err) {
+                showStatus(false, "Load error: " + err.message);
+            } finally {
+                if (btn && originalBtnHtml) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalBtnHtml;
+                }
+            }
+        }
+
+        async function downloadMasterExcelForSchedule(scheduleId, btn = null) {
+            let originalHtml = null;
+            if (btn) {
+                originalHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Excel...</span>`;
+            }
+            try {
+                await loadScheduleToViewer(scheduleId);
+                window.location.href = `/api/download/all-batches-excel?year=${encodeURIComponent(currentAcademicYear)}`;
+            } finally {
+                if (btn && originalHtml) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                }
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

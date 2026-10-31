@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.git/
+0_*.command
+0_*.bat
+1_*.command
+1_*.bat
+2_*.command
+2_*.bat
+Start_*.command
+Start_*.bat
+scratch/

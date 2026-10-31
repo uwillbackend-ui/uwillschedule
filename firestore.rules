@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /registrations/{document} {
+      // Allow user registration creation
+      allow create: if true;
+      
+      // Allow directors, master tester vicky, branch staff, and authenticated supervisors global read/update access
+      // Allow students and teachers to read/update their own document
+      allow read, update: if request.auth != null && (
+        request.auth.token.email == 'admin@uwillclasses.com' ||
+        request.auth.token.email == 'vicky@uwillclasses.com' ||
+        request.auth.token.email.matches('.*@uwillclasses[.]internal') ||
+        request.auth.token.email.matches('.*@.*') ||
+        request.auth.uid == document ||
+        resource.data.email == request.auth.token.email ||
+        resource.data.uid == request.auth.uid
+      );
+      
+      // Allow admin to delete documents
+      allow delete: if request.auth != null && (request.auth.token.email == 'admin@uwillclasses.com' || request.auth.token.email == 'vicky@uwillclasses.com');
+    }
+
+    // Real-Time Attendance Audit Trail
+    match /attendance_logs/{logId} {
+      allow read, create: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // Real-Time Bus GPS Tracking (Public parent tracking via WhatsApp links & authenticated manager/staff telemetry updates)
+    match /bus_tracking/{busId} {
+      // Unauthenticated parents tracking their child's bus from WhatsApp links
+      allow read: if true;
+      // Bus Managers, branch admins, and directors broadcasting live coordinates
+      allow write: if request.auth != null;
+    }
+
+    // Central System Configuration (Bus Fleet, Google Sheet sync, settings)
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Global System Configuration (Google Sheets sync, dynamic admin accounts, etc.)
+    match /system_config/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Remittance Consignments & Reconciliation (Branch to OP Road Head Office)
+    match /remittances/{remittanceId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Admin & Staff Accounts (stores staff logins and permissions)
+    match /admin_accounts/{username} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // UCEP Attendance Logs
+    match /ucep_attendance/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // UCEP Expense Management
+    match /ucep_expenses/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // UCEP Supervisor Attendance
+    match /ucep_supervisor_attendance/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // UCEP Paper / Exam Bundles
+    match /ucep_bundles/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Timetable Library (Past Created Schedules & Finalised Schedules)
+    match /timetable_library/{docId} {
+      allow read, write, delete: if true;
+    }
+  }
+}
