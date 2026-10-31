@@ -791,6 +791,26 @@
     </main>
 
     <script>
+        const BACKEND_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.endsWith('onrender.com'))
+            ? ''
+            : 'https://uwillschedule-backend.onrender.com';
+
+        function apiUrl(path) {
+            if (!path.startsWith('/')) path = '/' + path;
+            return BACKEND_URL + path;
+        }
+
+        // Seamlessly route API requests to cloud backend when hosted on Vercel
+        const _origFetch = window.fetch;
+        window.fetch = function(input, init) {
+            if (typeof input === 'string' && input.startsWith('/api/')) {
+                input = apiUrl(input);
+            } else if (input instanceof Request && input.url.startsWith('/api/')) {
+                input = new Request(apiUrl(input.url), input);
+            }
+            return _origFetch(input, init);
+        };
+
         let batchesData = {};
         let facultiesData = {};
         let topicsData = [];
@@ -807,6 +827,9 @@
         };
 
         async function init() {
+            document.querySelectorAll('a[href^="/api/"]').forEach(a => {
+                a.href = apiUrl(a.getAttribute('href'));
+            });
             syncAllYearSelectors(currentAcademicYear);
             await loadData();
         }
@@ -906,7 +929,7 @@
                 alert("Please select a batch first.");
                 return;
             }
-            window.location.href = `/api/download/batch-pdf?name=${encodeURIComponent(key)}&year=${encodeURIComponent(yr)}`;
+            window.location.href = apiUrl(`/api/download/batch-pdf?name=${encodeURIComponent(key)}&year=${encodeURIComponent(yr)}`);
         }
 
         function downloadHubFacultyPDF() {
@@ -916,7 +939,7 @@
                 alert("Please select a faculty first.");
                 return;
             }
-            window.location.href = `/api/download/faculty-pdf?name=${encodeURIComponent(fac)}&year=${encodeURIComponent(yr)}`;
+            window.location.href = apiUrl(`/api/download/faculty-pdf?name=${encodeURIComponent(fac)}&year=${encodeURIComponent(yr)}`);
         }
 
         async function loadData() {
@@ -1180,6 +1203,7 @@
             const btn = document.getElementById('btnGenerate');
             btn.disabled = true;
             btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Solving ${currentAcademicYear} (~60-90s)...</span>`;
+            showStatus(true, `⚡ Connecting to Cloud Solver... Generating timetable for Academic Year ${currentAcademicYear}. Please wait ~60-90s while the mathematical model solves all constraints...`);
 
             try {
                 const res = await fetch('/api/generate', {
@@ -1474,7 +1498,7 @@
                 alert("Please select a batch first.");
                 return;
             }
-            window.location.href = `/api/download/batch-pdf?name=${encodeURIComponent(key)}&year=${encodeURIComponent(currentAcademicYear)}`;
+            window.location.href = apiUrl(`/api/download/batch-pdf?name=${encodeURIComponent(key)}&year=${encodeURIComponent(currentAcademicYear)}`);
         }
 
         function downloadSelectedFacultyPDF() {
@@ -1483,7 +1507,7 @@
                 alert("Please select a faculty first.");
                 return;
             }
-            window.location.href = `/api/download/faculty-pdf?name=${encodeURIComponent(fac)}&year=${encodeURIComponent(currentAcademicYear)}`;
+            window.location.href = apiUrl(`/api/download/faculty-pdf?name=${encodeURIComponent(fac)}&year=${encodeURIComponent(currentAcademicYear)}`);
         }
 
         async function pushDirectToGoogleSheets(targetYear = null, btn = null) {
@@ -2116,7 +2140,7 @@
             }
             try {
                 await loadScheduleToViewer(scheduleId);
-                window.location.href = `/api/download/all-batches-excel?year=${encodeURIComponent(currentAcademicYear)}`;
+                window.location.href = apiUrl(`/api/download/all-batches-excel?year=${encodeURIComponent(currentAcademicYear)}`);
             } finally {
                 if (btn && originalHtml) {
                     btn.disabled = false;
