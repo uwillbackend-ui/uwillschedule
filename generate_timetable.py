@@ -109,16 +109,18 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
         vf_iv = model.NewFixedSizeIntervalVar(vf.start_min, vf_dur, f"vf_{vf.center}_{vf.batch}_{vf.day}_{vf.start_min}")
         batch_day_intervals.setdefault(((vf.center, vf.batch), vf.day), []).append(vf_iv)
         vf_fac = (vf.faculty or "").strip().upper()
-        if vf_fac == "ASIF SIR": vf_fac = "AASIF SIR"
-        if vf_fac in loader.faculties and "/" not in vf_fac:
-            is_mrg = vf.start_min < 840
-            fac_day_items.setdefault((vf_fac, vf.day), []).append({
-                "start": model.NewConstant(vf.start_min),
-                "end": model.NewConstant(vf.end_min),
-                "center": vf.center,
-                "active": model.NewConstant(1),
-                "is_morning": is_mrg
-            })
+        fac_list = [f.strip() for f in vf_fac.split("/")] if "/" in vf_fac else [vf_fac]
+        for fn in fac_list:
+            if fn == "ASIF SIR": fn = "AASIF SIR"
+            if fn in loader.faculties:
+                is_mrg = vf.start_min < 840
+                fac_day_items.setdefault((fn, vf.day), []).append({
+                    "start": model.NewConstant(vf.start_min),
+                    "end": model.NewConstant(vf.end_min),
+                    "center": vf.center,
+                    "active": model.NewConstant(1),
+                    "is_morning": is_mrg
+                })
         fixed_slots.append(ScheduledSlot(
             batch_key=f"{vf.center}_{vf.batch}",
             center=vf.center,
@@ -216,6 +218,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             else: # 2026-27
                 if fac_upper == "MANISH SIR":
                     dur_options = [75, 90] if nom_dur >= 85 else [60]
+                elif fac_upper == "VIJAY SIR":
+                    dur_options = [75]
                 elif req.daily_duration_min == 90:
                     dur_options = [60, 75, 90]
                 elif fac_upper == "VICKY SIR" and c == "AMBE MANJ":
@@ -232,6 +236,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                     dur_options = [nom_dur] if nom_dur <= 50 else [60]
                 elif fac_upper == "MOHSIN SIR":
                     dur_options = [90] if nom_dur >= 85 else ([75] if nom_dur >= 70 else [60])
+                elif fac_upper == "SUKETU SIR" and c == "SUB":
+                    dur_options = [60]
                 else:
                     dur_options = [nom_dur - 15, nom_dur - 10, nom_dur - 5, nom_dur, nom_dur + 5, nom_dur + 10]
                     min_allowed = 50 if c != "THS" else 45
@@ -496,6 +502,21 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             act_12 = sum(lv["day_vars"][d] for lv in daps_12_lvs if d in lv["day_vars"])
             model.Add(act_11 == act_12)
 
+    # English / Computer clustering on same day for Vishal Sir & Priyanka Madam:
+    for center_code in ["SUB", "OP", "NZM", "VB", "PNG", "DAPS"]:
+        v_lvs = [lv for lv in all_lecture_vars if lv["req"].faculty == "VISHAL SIR" and lv["center"] == center_code]
+        p_lvs = [lv for lv in all_lecture_vars if lv["req"].faculty == "PRIYANKA MADAM" and lv["center"] == center_code]
+        if v_lvs and p_lvs:
+            for d in DAYS_OF_WEEK:
+                v_acts = [lv["day_vars"][d] for lv in v_lvs if d in lv["day_vars"]]
+                p_acts = [lv["day_vars"][d] for lv in p_lvs if d in lv["day_vars"]]
+                if v_acts and p_acts:
+                    v_on_d = model.NewBoolVar(f"v_{center_code}_{d}")
+                    p_on_d = model.NewBoolVar(f"p_{center_code}_{d}")
+                    model.AddMaxEquality(v_on_d, v_acts)
+                    model.AddMaxEquality(p_on_d, p_acts)
+                    model.Add(v_on_d == p_on_d)
+
     # 4. ADD 2 WEEKLY TESTS PER BATCH (EXACTLY 1 HOUR, >= 1 DAY GAP, ZERO OVERLAPS, NO TESTS ON MONDAY)
     all_test_vars = []
     for (c, b), b_info in loader.batches.items():
@@ -553,159 +574,155 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     for ((c, b), d), ivs in batch_day_intervals.items():
         model.AddNoOverlap(ivs)
 
-    # 6. FACULTY CROSS-CENTER PRECEDENCE & EXACT TRAVEL BUFFERS
+    # 5. RULE_003: PREVENT REPEATED VISITS ACROSS ALL FACULTIES
     travel_time = loader.travel_matrix
-    prec_count = 0
-
-    # Enforce non-overlap and travel buffers across all traveling faculties
-    traveling_faculties = [
-        "VICKY SIR", "ABHISHEK SIR", "SUKETU SIR", "KHYATI MADAM",
-        "KAILASH SIR", "AMIT SIR", "NILESH SIR", "KANAKLATA MADAM",
-        "AASIF SIR", "BHAVESH SIR", "DHAVAL SIR", "VAIDEHI MADAM",
-        "MOHSIN SIR", "DARSHAN SIR", "ROMA MADAM", "DEEPIKA MADAM",
-        "VIJAY SIR", "SAGAR SIR", "RAMESH SIR", "ARJITA MADAM"
-    ]
 
     for (fac, d), items in fac_day_items.items():
-        if fac not in traveling_faculties:
-            continue
         n = len(items)
         if n < 2: continue
+        centers_list = sorted(list(set(it["center"] for it in items)))
+        if len(centers_list) < 2: continue
 
-        for i in range(n):
-            for j in range(i + 1, n):
-                it1, it2 = items[i], items[j]
-                if it1["is_morning"] != it2["is_morning"]:
-                    continue
+        for ci in range(len(centers_list)):
+            for cj in range(ci + 1, len(centers_list)):
+                c1, c2 = centers_list[ci], centers_list[cj]
+                c1_items = [it for it in items if it["center"] == c1]
+                c2_items = [it for it in items if it["center"] == c2]
+                tt_12 = travel_time.get((c1, c2), 30)
+                tt_21 = travel_time.get((c2, c1), 30)
 
-                c1, c2 = it1["center"], it2["center"]
-                tt_12 = travel_time.get((c1, c2), 30) if c1 != c2 else 0
-                tt_21 = travel_time.get((c2, c1), 30) if c1 != c2 else 0
+                b_order = model.NewBoolVar(f"cent_{fac}_{d}_{c1}_{c2}")
+                for it1 in c1_items:
+                    for it2 in c2_items:
+                        model.Add(it2["start"] >= it1["end"] + tt_12).OnlyEnforceIf([it1["active"], it2["active"], b_order])
+                        model.Add(it1["start"] >= it2["end"] + tt_21).OnlyEnforceIf([it1["active"], it2["active"], b_order.Not()])
 
-                b_order = model.NewBoolVar(f"ord_{fac}_{d}_{i}_{j}")
-                a1, a2 = it1["active"], it2["active"]
+    # Specific morning-to-evening bridges for faculties teaching at same center in both mrg and eve:
+    # Amit Sir: PNG EVE before OP GSEB
+    amit_png_eve = [lv for lv in all_lecture_vars if lv["req"].faculty == "AMIT SIR" and lv["center"] == "PNG" and "EVE" in lv["batch"]]
+    amit_op_eve = [lv for lv in all_lecture_vars if lv["req"].faculty == "AMIT SIR" and lv["center"] == "OP"]
+    for ape in amit_png_eve:
+        for aoe in amit_op_eve:
+            for d in DAYS_OF_WEEK:
+                if d in ape["day_vars"] and d in aoe["day_vars"]:
+                    model.Add(aoe["start"] >= ape["end"] + 30).OnlyEnforceIf([ape["day_vars"][d], aoe["day_vars"][d]])
 
-                model.Add(it2["start"] >= it1["end"] + tt_12).OnlyEnforceIf([a1, a2, b_order])
-                model.Add(it1["start"] >= it2["end"] + tt_21).OnlyEnforceIf([a1, a2, b_order.Not()])
-                prec_count += 1
+    # Kamal Sir: PNG EVE before NZM GSEB
+    kamal_png_eve = [lv for lv in all_lecture_vars if lv["req"].faculty == "KAMAL SIR" and lv["center"] == "PNG" and "EVE" in lv["batch"]]
+    kamal_nzm_eve = [lv for lv in all_lecture_vars if lv["req"].faculty == "KAMAL SIR" and lv["center"] == "NZM"]
+    for kpe in kamal_png_eve:
+        for kne in kamal_nzm_eve:
+            for d in DAYS_OF_WEEK:
+                if d in kpe["day_vars"] and d in kne["day_vars"]:
+                    model.Add(kne["start"] >= kpe["end"] + 30).OnlyEnforceIf([kpe["day_vars"][d], kne["day_vars"][d]])
 
-    print(f"Enforced {prec_count} cross-center travel precedence constraints across traveling faculties.")
+    # Vicky Sir: on Tuesday/Wednesday, SG morning before VB morning flexi
+    vicky_sg = [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "SG"]
+    vicky_vb_mrg = [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "VB" and "FLEXI" in lv["batch"]]
+    for vsg in vicky_sg:
+        for vvb in vicky_vb_mrg:
+            for d in ["TUESDAY", "WEDNESDAY"]:
+                if d in vsg["day_vars"] and d in vvb["day_vars"]:
+                    model.Add(vvb["start"] >= vsg["end"] + 30).OnlyEnforceIf([vsg["day_vars"][d], vvb["day_vars"][d]])
 
-    # 6B. VICKY SIR MTW MORNING NON-PING-PONG ROUTING:
-    vicky_mrg_items = {
-        "AMBE": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "AMBE MANJ"],
-        "SG_11": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "SG" and "11" in lv["batch"]],
-        "SG_12": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "SG" and "12" in lv["batch"]],
-        "VB": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "VB" and "FLEXI" in lv["batch"]]
-    }
+    # Kanaklata Madam: THS morning before OP
+    kanak_ths = [lv for lv in all_lecture_vars if lv["req"].faculty == "KANAKLATA MADAM" and lv["center"] == "THS"]
+    kanak_op = [lv for lv in all_lecture_vars if lv["req"].faculty == "KANAKLATA MADAM" and lv["center"] == "OP"]
+    for kths in kanak_ths:
+        for kop in kanak_op:
+            for d in DAYS_OF_WEEK:
+                if d in kths["day_vars"] and d in kop["day_vars"]:
+                    model.Add(kop["start"] >= kths["end"] + 30).OnlyEnforceIf([kths["day_vars"][d], kop["day_vars"][d]])
 
-    if len(vicky_mrg_items["SG_11"]) == 3 and len(vicky_mrg_items["SG_12"]) == 3:
-        if len(vicky_mrg_items["AMBE"]) == 3:
-            ambe_first = model.NewBoolVar("vicky_mrg_ambe_first")
-            for inst in range(3):
-                a_end = vicky_mrg_items["AMBE"][inst]["end"]
-                a_st = vicky_mrg_items["AMBE"][inst]["start"]
-                s11_st = vicky_mrg_items["SG_11"][inst]["start"]
-                s11_end = vicky_mrg_items["SG_11"][inst]["end"]
-                s12_st = vicky_mrg_items["SG_12"][inst]["start"]
-                s12_end = vicky_mrg_items["SG_12"][inst]["end"]
+    # Mohsin Sir: THS morning before PNG
+    mohsin_ths = [lv for lv in all_lecture_vars if lv["req"].faculty == "MOHSIN SIR" and lv["center"] == "THS"]
+    mohsin_png = [lv for lv in all_lecture_vars if lv["req"].faculty == "MOHSIN SIR" and lv["center"] == "PNG"]
+    for mths in mohsin_ths:
+        for mpng in mohsin_png:
+            for d in DAYS_OF_WEEK:
+                if d in mths["day_vars"] and d in mpng["day_vars"]:
+                    model.Add(mpng["start"] >= mths["end"] + 30).OnlyEnforceIf([mths["day_vars"][d], mpng["day_vars"][d]])
 
-                # Option A: AMBE first, then both SG lectures
-                model.Add(s11_st >= a_end + 45).OnlyEnforceIf(ambe_first)
-                model.Add(s12_st >= a_end + 45).OnlyEnforceIf(ambe_first)
+    # Sunil Sir: finishes SG in the early morning before Bright fixed (starts at 640)
+    sunil_sg = [lv for lv in all_lecture_vars if lv["req"].faculty == "SUNIL SIR" and lv["center"] == "SG"]
+    for ssg in sunil_sg:
+        if "TUESDAY" in ssg["day_vars"]:
+            model.Add(ssg["day_vars"]["TUESDAY"] == 0)
+        for d in ["THURSDAY", "FRIDAY", "SATURDAY"]:
+            if d in ssg["day_vars"]:
+                model.Add(ssg["end"] <= 610).OnlyEnforceIf(ssg["day_vars"][d])
 
-                # Option B: Both SG lectures first, then AMBE
-                model.Add(a_st >= s11_end + 45).OnlyEnforceIf(ambe_first.Not())
-                model.Add(a_st >= s12_end + 45).OnlyEnforceIf(ambe_first.Not())
+    # 6. RULE_007: MAX 1 AUXILIARY LECTURE PER DAY IN EVENING BATCHES
+    aux_subjs = ["GUJARATI", "HINDI", "COMPUTER", "ENGLISH"]
+    for (c, b), b_info in loader.batches.items():
+        if b_info.earliest_start_min < 840 and "EVE" not in b: continue
+        batch_lvs = [lv for lv in all_lecture_vars if lv["center"] == c and lv["batch"] == b]
+        for d in b_info.operating_days:
+            aux_acts = []
+            for lv in batch_lvs:
+                subj = lv["req"].subject.upper()
+                if any(asub in subj for asub in aux_subjs):
+                    if d in lv["day_vars"]:
+                        aux_acts.append(lv["day_vars"][d])
+            if len(aux_acts) > 1:
+                model.Add(sum(aux_acts) <= 1)
 
-        if len(vicky_mrg_items["VB"]) == 3:
-            vb_after_sg = model.NewBoolVar("vicky_vb_after_sg")
-            for inst in range(3):
-                s11_st = vicky_mrg_items["SG_11"][inst]["start"]
-                s11_end = vicky_mrg_items["SG_11"][inst]["end"]
-                s12_st = vicky_mrg_items["SG_12"][inst]["start"]
-                s12_end = vicky_mrg_items["SG_12"][inst]["end"]
-                vb_st = vicky_mrg_items["VB"][inst]["start"]
-                vb_end = vicky_mrg_items["VB"][inst]["end"]
-
-                # Case 1: Both SG lectures before VB
-                model.Add(vb_st >= s11_end + 30).OnlyEnforceIf(vb_after_sg)
-                model.Add(vb_st >= s12_end + 30).OnlyEnforceIf(vb_after_sg)
-
-                # Case 2: VB before both SG lectures
-                model.Add(s11_st >= vb_end + 30).OnlyEnforceIf(vb_after_sg.Not())
-                model.Add(s12_st >= vb_end + 30).OnlyEnforceIf(vb_after_sg.Not())
-        print("Enforced Vicky Sir MTW morning non-ping-pong routing & SG clustering.")
-
-    # 6C. VICKY SIR MTW EVENING CONSISTENT SEQUENCE (VB -> NZM or NZM -> VB)
-    vicky_eve_items = {
-        "VB_12": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "VB" and lv["batch"] == "12TH GSEB"],
-        "NZM_11": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "NZM" and "11" in lv["batch"]],
-        "NZM_12": [lv for lv in all_lecture_vars if lv["req"].faculty == "VICKY SIR" and lv["center"] == "NZM" and "12" in lv["batch"]],
-    }
-    if len(vicky_eve_items["VB_12"]) == 3 and len(vicky_eve_items["NZM_11"]) == 3 and len(vicky_eve_items["NZM_12"]) == 3:
-        vicky_vb_first = model.NewBoolVar("vicky_eve_vb_first")
-        for inst in range(3):
-            vb_st = vicky_eve_items["VB_12"][inst]["start"]
-            vb_end = vicky_eve_items["VB_12"][inst]["end"]
-            n11_st = vicky_eve_items["NZM_11"][inst]["start"]
-            n11_end = vicky_eve_items["NZM_11"][inst]["end"]
-            n12_st = vicky_eve_items["NZM_12"][inst]["start"]
-            n12_end = vicky_eve_items["NZM_12"][inst]["end"]
-            model.Add(n11_st >= vb_end + 30).OnlyEnforceIf(vicky_vb_first)
-            model.Add(n12_st >= vb_end + 30).OnlyEnforceIf(vicky_vb_first)
-            model.Add(vb_st >= n11_end + 30).OnlyEnforceIf(vicky_vb_first.Not())
-            model.Add(vb_st >= n12_end + 30).OnlyEnforceIf(vicky_vb_first.Not())
-        print("Enforced Vicky Sir MTW evening consistent sequence (VB <-> NZM).")
-
-    # 7. UNIVERSAL TRAVEL MINIMIZATION ACROSS ALL TRAVELING FACULTIES
-    fac_center_visits = []
-    for (fac, d), items in fac_day_items.items():
-        if fac not in traveling_faculties:
-            continue
-        centers_on_d = set(it["center"] for it in items)
-        for cent in centers_on_d:
-            v_var = model.NewBoolVar(f"vis_{fac}_{d}_{cent}")
-            acts = [it["active"] for it in items if it["center"] == cent]
-            for a in acts:
-                model.Add(v_var >= a)
-            fac_center_visits.append(v_var)
-
-    # 8. AFTERNOON / EVENING BATCH GAP MINIMIZATION (ZERO EMPTY SLOTS)
-    batch_day_eve_events = {}
+    # 7. Collect Evening Events
+    evening_batches = set()
+    batch_day_all_events = {}
     for lv in all_lecture_vars:
         c, b = lv["center"], lv["batch"]
-        b_info = loader.batches.get((c, b))
-        if not b_info or b_info.earliest_start_min < 900:
-            continue
+        b_info = loader.batches[c, b]
+        if b_info.earliest_start_min < 840 and "EVE" not in b: continue
+        evening_batches.add((c, b))
         for d, act_var in lv["day_vars"].items():
-            batch_day_eve_events.setdefault(((c, b), d), []).append({
-                "start": lv["start"], "dur": lv["dur"], "end": lv["end"], "act": act_var
+            batch_day_all_events.setdefault((c, b, d), []).append({
+                "start": lv["start"], "dur": lv["dur"], "end": lv["end"],
+                "act": act_var, "subj": lv["req"].subject.upper(), "type": "lecture"
             })
 
     for tv in all_test_vars:
         c, b = tv["center"], tv["batch"]
-        b_info = loader.batches.get((c, b))
-        if not b_info or b_info.earliest_start_min < 900:
-            continue
+        b_info = loader.batches[c, b]
+        if b_info.earliest_start_min < 840 and "EVE" not in b: continue
         for d, act_var in tv["t1_days"].items():
-            t1_st_d = tv["t1_st_vars"][d]
-            batch_day_eve_events.setdefault(((c, b), d), []).append({
-                "start": t1_st_d, "dur": model.NewConstant(60), "end": t1_st_d + 60, "act": act_var
+            st = tv["t1_st_vars"][d]
+            batch_day_all_events.setdefault((c, b, d), []).append({
+                "start": st, "dur": model.NewConstant(60), "end": st + 60,
+                "act": act_var, "subj": "TEST", "type": "test"
             })
         for d, act_var in tv["t2_days"].items():
-            t2_st_d = tv["t2_st_vars"][d]
-            batch_day_eve_events.setdefault(((c, b), d), []).append({
-                "start": t2_st_d, "dur": model.NewConstant(60), "end": t2_st_d + 60, "act": act_var
+            st = tv["t2_st_vars"][d]
+            batch_day_all_events.setdefault((c, b, d), []).append({
+                "start": st, "dur": model.NewConstant(60), "end": st + 60,
+                "act": act_var, "subj": "TEST", "type": "test"
             })
 
+    # 8. RULE_005 & RULE_006: EDGE SLOTS
+    for (c, b, d), ev_list in batch_day_all_events.items():
+        if len(ev_list) < 3: continue
+        is_cbse = "CBSE" in b
+        for ev in ev_list:
+            subj = ev["subj"]
+            is_target_maths = (is_cbse and "MATH" in subj)
+            is_target_aux = any(asub in subj for asub in aux_subjs)
+            if is_target_maths or is_target_aux:
+                is_first = model.NewBoolVar(f"edge_first_{c}_{b}_{d}_{subj[:4]}")
+                for other in ev_list:
+                    if other is ev: continue
+                    model.Add(other["start"] >= ev["end"]).OnlyEnforceIf([ev["act"], other["act"], is_first])
+                    model.Add(ev["start"] >= other["end"]).OnlyEnforceIf([ev["act"], other["act"], is_first.Not()])
+
+    # 9. GAP MINIMIZATION (RULE_002) & UNIFORM START TIME (RULE_008)
     eve_gap_penalties = []
-    for ((c, b), d), ev_list in batch_day_eve_events.items():
-        b_info = loader.batches.get((c, b))
-        day_es = b_info.day_earliest_start.get(d, b_info.earliest_start_min)
-        day_le = b_info.day_latest_end.get(d, b_info.latest_end_min)
-        m = len(ev_list)
-        if m < 2: continue
+    batch_daily_bmin = {}
+
+    for (c, b, d), ev_list in batch_day_all_events.items():
+        if (c, b) not in evening_batches: continue
+        es, le = branch_hours[c]
+        b_info = loader.batches[c, b]
+        day_es = b_info.day_earliest_start.get(d, es)
+        day_le = b_info.day_latest_end.get(d, le)
 
         bmin = model.NewIntVar(day_es, day_le, f"bmin_{c}_{b}_{d}")
         bmax = model.NewIntVar(day_es, day_le, f"bmax_{c}_{b}_{d}")
@@ -729,16 +746,37 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
         model.Add(gap_var == 0).OnlyEnforceIf(any_act.Not())
         eve_gap_penalties.append(gap_var)
 
+        batch_daily_bmin.setdefault((c, b), {})[d] = (bmin, any_act, ev_list)
+
+    # RULE_008: Enforce identical start time across all days for each evening batch
+    for (c, b), day_dict in batch_daily_bmin.items():
+        b_info = loader.batches.get((c, b))
+        base_es = 960 if (c == "PNG" and "CBSE" in b) else b_info.earliest_start_min
+        b_start_var = model.NewIntVar(base_es, base_es + 30, f"bstart_{c}_{b}")
+        b_step = model.NewIntVar(0, 2, f"bstep_{c}_{b}")
+        model.Add(b_start_var == base_es + b_step * 15)
+
+        for d, (bmin, any_act, ev_list) in day_dict.items():
+            for ev in ev_list:
+                model.Add(ev["start"] >= b_start_var).OnlyEnforceIf(ev["act"])
+            first_indicators = []
+            for k, ev in enumerate(ev_list):
+                is_f = model.NewBoolVar(f"isf_{c}_{b}_{d}_{k}")
+                model.Add(ev["start"] == b_start_var).OnlyEnforceIf(is_f)
+                model.Add(is_f <= ev["act"])
+                first_indicators.append(is_f)
+            model.Add(sum(first_indicators) == 1).OnlyEnforceIf(any_act)
+
     alt_sum = sum(lv["alt"] for lv in all_lecture_vars)
-    if eve_gap_penalties:
-        model.Minimize(sum(eve_gap_penalties) * 100 + alt_sum * 10)
-    else:
-        model.Minimize(alt_sum)
+    model.Minimize(sum(eve_gap_penalties) * 10000 + alt_sum * 10)
 
     # Solve
     solver = cp_model.CpSolver()
     if os.environ.get("VERCEL"):
         solver.parameters.max_time_in_seconds = 160.0
+        solver.parameters.num_workers = 2
+    elif os.environ.get("RENDER"):
+        solver.parameters.max_time_in_seconds = 120.0
         solver.parameters.num_workers = 2
     else:
         solver.parameters.max_time_in_seconds = 90.0
@@ -997,6 +1035,11 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     print("=" * 65)
 
 if __name__ == "__main__":
-    import sys
-    year = sys.argv[1] if len(sys.argv) > 1 else "2026-27"
-    run_schedule_generation(academic_year=year)
+    import sys, argparse
+    parser = argparse.ArgumentParser(description="Generate timetable schedules")
+    parser.add_argument("year_pos", nargs="?", default=None, help="Academic year (e.g. 2026-27)")
+    parser.add_argument("--year", dest="year_flag", default=None, help="Academic year (e.g. 2026-27)")
+    parser.add_argument("--no-sync", action="store_true", help="Skip syncing from Google Sheets")
+    args = parser.parse_args()
+    year = args.year_flag or args.year_pos or "2026-27"
+    run_schedule_generation(academic_year=year, sync_first=not args.no_sync)

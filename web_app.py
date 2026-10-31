@@ -6,6 +6,8 @@ import sys
 import zipfile
 import io
 import urllib.parse
+import threading
+import time
 
 sys.path.insert(0, os.path.abspath("."))
 
@@ -20,6 +22,38 @@ import openpyxl
 import shutil
 
 PORT = 8080
+
+generation_lock = threading.Lock()
+generation_state = {
+    "status": "idle",
+    "year": None,
+    "start_time": 0,
+    "elapsed_sec": 0,
+    "message": "",
+    "error": None
+}
+generation_thread = None
+
+def run_generation_worker(year):
+    global generation_state
+    try:
+        generate_timetable.run_schedule_generation(sync_first=True, academic_year=year)
+        try:
+            from src import google_sheets_exporter
+            google_sheets_exporter.auto_push_all(output_base=get_output_base(), year=year)
+        except Exception:
+            pass
+        with generation_lock:
+            generation_state["status"] = "completed"
+            generation_state["elapsed_sec"] = int(time.time() - generation_state.get("start_time", time.time()))
+            generation_state["message"] = f"Timetable for {year} generated successfully with 0 overlaps, exact travel buffers & block consistency!"
+            generation_state["error"] = None
+    except Exception as e:
+        with generation_lock:
+            generation_state["status"] = "failed"
+            generation_state["elapsed_sec"] = int(time.time() - generation_state.get("start_time", time.time()))
+            generation_state["error"] = str(e)
+            generation_state["message"] = str(e)
 
 def get_excel_path(academic_year: str = "2026-27"):
     year_suffix = "_2027_28" if academic_year == "2027-28" else "_2026_27"
@@ -103,6 +137,15 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/data":
             self.handle_get_data()
+            return
+
+        elif path == "/api/generate/status":
+            global generation_state
+            with generation_lock:
+                state_copy = dict(generation_state)
+            if state_copy.get("status") == "running" and state_copy.get("start_time"):
+                state_copy["elapsed_sec"] = int(time.time() - state_copy["start_time"])
+            self.send_json_response(200, state_copy)
             return
 
         elif path == "/api/download/batch-pdf":
@@ -330,13 +373,35 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
                 body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else ""
                 data = json.loads(body) if body else {}
                 year = data.get("year") or self._get_query_param("year") or "2026-27"
-                generate_timetable.run_schedule_generation(sync_first=True, academic_year=year)
-                try:
-                    from src import google_sheets_exporter
-                    google_sheets_exporter.auto_push_all(output_base=get_output_base(), year=year)
-                except Exception:
-                    pass
-                self.send_json_response(200, {"success": True, "message": f"Timetable for {year} generated successfully with 0 overlaps, exact travel buffers & block consistency!"})
+
+                global generation_state, generation_thread
+                with generation_lock:
+                    if generation_state.get("status") == "running":
+                        cur_year = generation_state.get("year", year)
+                        elapsed = int(time.time() - generation_state.get("start_time", time.time()))
+                        self.send_json_response(200, {
+                            "success": True,
+                            "status": "running",
+                            "message": f"Optimization for {cur_year} is already running in background ({elapsed}s elapsed)."
+                        })
+                        return
+
+                    generation_state = {
+                        "status": "running",
+                        "year": year,
+                        "start_time": time.time(),
+                        "elapsed_sec": 0,
+                        "message": f"Starting constraint solver for {year}...",
+                        "error": None
+                    }
+                    generation_thread = threading.Thread(target=run_generation_worker, args=(year,), daemon=True)
+                    generation_thread.start()
+
+                self.send_json_response(200, {
+                    "success": True,
+                    "status": "running",
+                    "message": f"Timetable optimization for {year} started successfully in background."
+                })
             except Exception as e:
                 self.send_json_response(500, {"success": False, "message": str(e)})
             return
@@ -974,9 +1039,10 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
 def start_server(port=None):
     if port is None:
         port = int(os.environ.get("PORT", PORT))
-    socketserver.TCPServer.allow_reuse_address = True
     handler = SchedulerRequestHandler
-    with socketserver.TCPServer(("", port), handler) as httpd:
+    server_class = http.server.ThreadingHTTPServer if hasattr(http.server, "ThreadingHTTPServer") else socketserver.ThreadingTCPServer
+    server_class.allow_reuse_address = True
+    with server_class(("", port), handler) as httpd:
         print(f"==================================================")
         print(f"WEB APP RUNNING AT: http://localhost:{port}")
         print(f"Open this URL in Google Chrome or any browser!")

@@ -791,7 +791,15 @@
     </main>
 
     <script>
-        const BACKEND_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.endsWith('onrender.com'))
+        const isLocalHost = window.location.hostname === 'localhost' ||
+                            window.location.hostname === '127.0.0.1' ||
+                            window.location.hostname === '0.0.0.0' ||
+                            window.location.hostname.endsWith('.local') ||
+                            /^192\.168\./.test(window.location.hostname) ||
+                            /^10\./.test(window.location.hostname) ||
+                            (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+
+        const BACKEND_URL = (isLocalHost || window.location.hostname.endsWith('onrender.com'))
             ? ''
             : 'https://uwillschedule-backend.onrender.com';
 
@@ -1202,8 +1210,8 @@
         async function generateSchedule() {
             const btn = document.getElementById('btnGenerate');
             btn.disabled = true;
-            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Solving ${currentAcademicYear} (~60-90s)...</span>`;
-            showStatus(true, `⚡ Connecting to Cloud Solver... Generating timetable for Academic Year ${currentAcademicYear}. Please wait ~60-90s while the mathematical model solves all constraints...`);
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Starting Solver...</span>`;
+            showStatus(true, `⚡ Connecting to solver... Initiating timetable optimization for Academic Year ${currentAcademicYear}...`);
 
             try {
                 const res = await fetch('/api/generate', {
@@ -1218,19 +1226,55 @@
                 } catch (jsonErr) {
                     throw new Error(res.ok ? "Invalid server response" : `Server error (${res.status}): ${text.substring(0, 150) || res.statusText}`);
                 }
+
                 if (!res.ok || data.success === false) {
-                    showStatus(false, "Generation error: " + (data.message || 'Unknown error'));
-                } else {
-                    showStatus(true, data.message || `New timetable for ${currentAcademicYear} generated with zero overlaps and exact travel buffers!`);
-                    await loadData();
+                    throw new Error(data.message || 'Failed to start timetable generation');
+                }
+
+                // Poll status until complete or failed
+                const pollInterval = 3000;
+                const startTime = Date.now();
+                const maxWaitMs = 240000; // 4 minutes
+
+                while (true) {
+                    await new Promise(r => setTimeout(r, pollInterval));
+                    const elapsed = Math.round((Date.now() - startTime) / 1000);
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Solving ${currentAcademicYear} (${elapsed}s)...</span>`;
+                    showStatus(true, `⚡ Solving timetable constraints for Academic Year ${currentAcademicYear} (${elapsed}s elapsed)... CP-SAT mathematical model is optimizing zero overlaps, travel buffers & block consistency.`);
+
                     try {
-                        await autoArchiveToFirebase();
-                    } catch (arcErr) {
-                        console.warn("Auto-archive notice:", arcErr);
+                        const sRes = await fetch('/api/generate/status?year=' + encodeURIComponent(currentAcademicYear));
+                        if (!sRes.ok) continue;
+                        const sData = await sRes.json();
+
+                        if (sData.status === 'completed') {
+                            showStatus(true, sData.message || `New timetable for ${currentAcademicYear} generated with zero overlaps and exact travel buffers!`);
+                            await loadData();
+                            try {
+                                await autoArchiveToFirebase();
+                            } catch (arcErr) {
+                                console.warn("Auto-archive notice:", arcErr);
+                            }
+                            break;
+                        } else if (sData.status === 'failed') {
+                            throw new Error(sData.error || sData.message || "Constraint optimization failed.");
+                        }
+                    } catch (pollErr) {
+                        if (pollErr.message && !pollErr.message.includes('fetch') && !pollErr.message.includes('Load failed')) {
+                            throw pollErr;
+                        }
+                    }
+
+                    if (Date.now() - startTime > maxWaitMs) {
+                        throw new Error("Optimization timed out after 4 minutes. Please check server logs.");
                     }
                 }
             } catch (e) {
-                showStatus(false, "Generation error: " + e.message);
+                const msg = e.message || 'Unknown error';
+                const friendlyMsg = msg === 'Load failed' || msg.includes('Failed to fetch')
+                    ? 'Connection to solver backend was interrupted. If using cloud dashboard, please verify backend solver status or run "1_Generate_Timetable_Mac.command" locally.'
+                    : msg;
+                showStatus(false, "Generation error: " + friendlyMsg);
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = `<i class="fa-solid fa-bolt"></i> <span>Generate Schedule</span>`;
