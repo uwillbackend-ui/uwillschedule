@@ -1365,7 +1365,7 @@
             const btn = document.getElementById('btnGenerate');
             if (btn) btn.disabled = true;
             const startTime = Date.now();
-            const maxWaitMs = 300000; // 5 minutes
+            const maxWaitMs = 600000; // 10 minutes
 
             try {
                 while (true) {
@@ -1392,6 +1392,11 @@
                             } else if (sData.status === 'running') {
                                 if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>GENERATING SCHEDULE. PLEASE WAIT...</span>`;
                                 showStatus(true, "GENERATING SCHEDULE. PLEASE WAIT...");
+                            } else if (sData.status === 'idle') {
+                                if (elapsed > 15) {
+                                    showStatus(false, "The server process was interrupted or restarted. Please click Generate Schedule again.");
+                                    break;
+                                }
                             }
                         }
                     } catch (pollErr) {
@@ -1399,7 +1404,7 @@
                     }
 
                     if (Date.now() - startTime > maxWaitMs) {
-                        showStatus(false, "Generation timed out after 5 minutes. Please check server logs.");
+                        showStatus(false, "Generation timed out. Please check server logs or click Generate Schedule again.");
                         break;
                     }
 

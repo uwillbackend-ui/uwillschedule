@@ -797,14 +797,14 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     # Solve
     solver = cp_model.CpSolver()
     if os.environ.get("VERCEL"):
-        solver.parameters.max_time_in_seconds = 160.0
+        solver.parameters.max_time_in_seconds = 45.0
         solver.parameters.num_workers = 2
     elif os.environ.get("RENDER"):
-        solver.parameters.max_time_in_seconds = 240.0
-        solver.parameters.num_workers = 4
+        solver.parameters.max_time_in_seconds = 50.0
+        solver.parameters.num_workers = 2
     else:
-        solver.parameters.max_time_in_seconds = float(os.environ.get("MAX_TIME", "90.0"))
-        solver.parameters.num_workers = 8
+        solver.parameters.max_time_in_seconds = float(os.environ.get("MAX_TIME", "45.0"))
+        solver.parameters.num_workers = 4
     solver.parameters.log_search_progress = True
     solver.parameters.use_feasibility_pump = True
     solver.parameters.repair_hint = True
@@ -813,7 +813,12 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     # Load warm-start solution hints if available to seed CP-SAT with a known feasible base
     hint_file = os.path.join(loader.data_dir, f"solution_hints_{academic_year}.json")
     if not os.path.exists(hint_file):
+        d_dir = "data_2027_28" if academic_year == "2027-28" else "data"
+        hint_file = os.path.join(d_dir, f"solution_hints_{academic_year}.json")
+    if not os.path.exists(hint_file):
         hint_file = f"data/solution_hints_{academic_year}.json"
+    if not os.path.exists(hint_file):
+        hint_file = f"data_2027_28/solution_hints_{academic_year}.json"
     if not os.path.exists(hint_file):
         hint_file = f"output/solution_hints_{academic_year}.json"
     if os.path.exists(hint_file):

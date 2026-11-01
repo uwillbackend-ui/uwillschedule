@@ -38,16 +38,21 @@ def run_generation_worker(year, resolutions=None):
     global generation_state
     try:
         generate_timetable.run_schedule_generation(sync_first=True, academic_year=year, resolutions=resolutions)
-        try:
-            from src import google_sheets_exporter
-            google_sheets_exporter.auto_push_all(output_base=get_output_base(), year=year)
-        except Exception:
-            pass
         with generation_lock:
             generation_state["status"] = "completed"
             generation_state["elapsed_sec"] = int(time.time() - generation_state.get("start_time", time.time()))
             generation_state["message"] = "THE SCHEDULE IS READY"
             generation_state["error"] = None
+        # Push to Google Sheets asynchronously in background so we don't delay the user
+        try:
+            from src import google_sheets_exporter
+            threading.Thread(
+                target=google_sheets_exporter.auto_push_all,
+                kwargs={"output_base": get_output_base(), "year": year},
+                daemon=True
+            ).start()
+        except Exception:
+            pass
     except Exception as e:
         with generation_lock:
             generation_state["status"] = "failed"
