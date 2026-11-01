@@ -437,7 +437,7 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
                         self.send_json_response(200, {
                             "success": True,
                             "status": "running",
-                            "message": f"Optimization for {cur_year} is already running in background ({elapsed}s elapsed)."
+                            "message": "GENERATING SCHEDULE. PLEASE WAIT..."
                         })
                         return
 
