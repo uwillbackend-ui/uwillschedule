@@ -768,7 +768,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
 
     # Solve
     solver = cp_model.CpSolver()
-    max_time = float(os.environ.get("MAX_TIME", "8.0"))
+    max_time = float(os.environ.get("MAX_TIME", "25.0"))
     solver.parameters.max_time_in_seconds = max_time
     solver.parameters.num_workers = 2
     solver.parameters.max_memory_in_mb = 180
