@@ -341,10 +341,14 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
                 b_info = loader.batches.get(("VB", "12TH CBSE (FLEXI)"))
                 if b_info and "MONDAY" not in b_info.operating_days:
                     b_info.operating_days.insert(0, "MONDAY")
+            elif choice == "allow_two_on_one_day":
+                for r in loader.subject_requirements:
+                    if r.center == "VB" and r.batch == "12TH CBSE (FLEXI)" and "ACCOUNTS" in r.subject:
+                        r.max_per_day = 2
 
         # 2. BRIGHT 11th CBSE Capacity Deficit
         elif "DISC_BATCH_CAPACITY_BRIGHT_11TH_CBSE" in disc_id:
-            if choice == "subject_rules_and_tests":
+            if choice in ["subject_rules_and_tests", "reduce_days"]:
                 for r in loader.subject_requirements:
                     if r.center == "BRIGHT":
                         if "ACCOUNTS" in r.subject:
@@ -356,6 +360,11 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
                         elif "BUSINESS" in r.subject:
                             r.weekly_days = 2
                             r.weekly_hours = round(r.weekly_days * r.daily_duration_min / 60.0, 2)
+            elif choice == "reduce_tests":
+                for r in loader.subject_requirements:
+                    if r.center == "BRIGHT" and "ACCOUNTS" in r.subject:
+                        r.weekly_days = 4
+                        r.weekly_hours = round(r.weekly_days * r.daily_duration_min / 60.0, 2)
             elif choice == "extend_hours":
                 for b_name in ["11TH CBSE - B", "11TH CBSE - C"]:
                     b_info = loader.batches.get(("BRIGHT", b_name))
@@ -370,7 +379,7 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
                     b_op11.latest_end_min = max(b_op11.latest_end_min, 1200)
                     for d in b_op11.operating_days:
                         b_op11.day_latest_end[d] = max(b_op11.day_latest_end.get(d, 0), 1200)
-            elif choice == "reduce_days":
+            elif choice in ["reduce_days", "reduce_tests"]:
                 for r in loader.subject_requirements:
                     if r.center == "OP" and r.batch == "11TH GSEB" and "ACCOUNTS" in r.subject:
                         r.weekly_days = 4
@@ -401,6 +410,14 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
                     for d, lim in kautik.day_limits.items():
                         if lim.get("mrg_from") and lim["mrg_from"] > 540:
                             lim["mrg_from"] = 540
+            elif choice == "compress_to_60m":
+                for r in loader.subject_requirements:
+                    if "KAUTIK" in (r.faculty or "").upper() and loader.batches.get((r.center, r.batch)) and loader.batches[(r.center, r.batch)].earliest_start_min < 840:
+                        r.daily_duration_min = 60
+            elif choice == "reassign_backup":
+                for r in loader.subject_requirements:
+                    if "KAUTIK" in (r.faculty or "").upper() and loader.batches.get((r.center, r.batch)) and loader.batches[(r.center, r.batch)].earliest_start_min < 600:
+                        r.faculty = "BACKUP FACULTY"
 
         # 7. Vicky Sir evening VB departure
         elif disc_id == "DISC_VICKY_SIR_VB_EVENING":
@@ -410,11 +427,22 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
                     for d, lim in vicky.day_limits.items():
                         if lim.get("eve_to") and lim["eve_to"] < 1150:
                             lim["eve_to"] = 1150
+            elif choice == "reassign_vb_eve":
+                for r in loader.subject_requirements:
+                    if "VICKY" in (r.faculty or "").upper() and r.center == "VB" and "12TH GSEB" in r.batch:
+                        r.faculty = "BACKUP FACULTY"
 
         # 8. Manish Sir B.COM duration
         elif disc_id == "DISC_MANISH_SIR_BCOM_DURATION":
-            if choice == "allow_60m":
+            if choice in ["allow_60m", "split_into_two"]:
                 for r in loader.subject_requirements:
                     if "MANISH" in (r.faculty or "").upper() and "B.COM" in r.batch:
-                        r.daily_duration_min = 60
+                        r.daily_duration_min = 60 if choice == "allow_60m" else 45
+            elif choice == "extend_batch_to_1pm":
+                for b_key in [("OP", "SY B.COM"), ("PNG", "SY B.COM")]:
+                    b_info = loader.batches.get(b_key)
+                    if b_info:
+                        b_info.latest_end_min = max(b_info.latest_end_min, 780)
+                        for d in b_info.operating_days:
+                            b_info.day_latest_end[d] = max(b_info.day_latest_end.get(d, 0), 780)
 

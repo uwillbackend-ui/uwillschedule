@@ -421,7 +421,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
 
             for d in op_days:
                 inst_on_d = [lv["day_vars"][d] for lv in all_lecture_vars if lv["req"].req_id == req.req_id]
-                model.Add(sum(inst_on_d) <= 1)
+                max_p_d = getattr(req, "max_per_day", 1)
+                model.Add(sum(inst_on_d) <= max_p_d)
 
             # Block 1 consistency (Mon == Tue == Wed)
             d_b1 = [d for d in BLOCK_1 if d in op_days]
@@ -799,12 +800,35 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
         solver.parameters.max_time_in_seconds = 160.0
         solver.parameters.num_workers = 2
     elif os.environ.get("RENDER"):
-        solver.parameters.max_time_in_seconds = 120.0
-        solver.parameters.num_workers = 2
+        solver.parameters.max_time_in_seconds = 240.0
+        solver.parameters.num_workers = 4
     else:
         solver.parameters.max_time_in_seconds = float(os.environ.get("MAX_TIME", "90.0"))
         solver.parameters.num_workers = 8
     solver.parameters.log_search_progress = True
+    solver.parameters.use_feasibility_pump = True
+    solver.parameters.repair_hint = True
+    solver.parameters.use_optimization_hints = True
+
+    # Load warm-start solution hints if available to seed CP-SAT with a known feasible base
+    hint_file = os.path.join(loader.data_dir, f"solution_hints_{academic_year}.json")
+    if not os.path.exists(hint_file):
+        hint_file = f"data/solution_hints_{academic_year}.json"
+    if not os.path.exists(hint_file):
+        hint_file = f"output/solution_hints_{academic_year}.json"
+    if os.path.exists(hint_file):
+        try:
+            with open(hint_file, "r") as hf:
+                saved_hints = json.load(hf)
+            hint_count = 0
+            for i, v in enumerate(model.Proto().variables):
+                if v.name and v.name in saved_hints:
+                    model.Proto().solution_hint.vars.append(i)
+                    model.Proto().solution_hint.values.append(int(saved_hints[v.name]))
+                    hint_count += 1
+            print(f"[WARM START] Loaded {hint_count} complete solution hints from {hint_file}!")
+        except Exception as he:
+            print(f"[WARM START NOTE] Could not apply hints: {he}")
 
     print("Solving UNIFIED GLOBAL MODEL across all branches...")
     t0 = time.time()
@@ -815,6 +839,25 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     if st not in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
         print("Error: Could not solve model. Please check constraints.")
         raise RuntimeError(f"CP-SAT solver returned {solver.StatusName(st)}")
+
+    # Save solution hints for fast warm starts on future runs
+    try:
+        new_hints = {}
+        resp = solver.ResponseProto()
+        if len(resp.solution) > 0:
+            for i, val in enumerate(resp.solution):
+                v_name = model.Proto().variables[i].name
+                if v_name:
+                    new_hints[v_name] = int(val)
+        hint_save_path = os.path.join(loader.data_dir, f"solution_hints_{academic_year}.json")
+        with open(hint_save_path, "w") as hf:
+            json.dump(new_hints, hf)
+        os.makedirs("output", exist_ok=True)
+        with open(f"output/solution_hints_{academic_year}.json", "w") as hf:
+            json.dump(new_hints, hf)
+        print(f"[WARM START] Successfully saved {len(new_hints)} variable hints to {hint_save_path}")
+    except Exception as he:
+        print(f"[WARM START NOTE] Could not save hints: {he}")
 
     # Extract solved flexible recess timings and update b_info
     solved_recess_data = {}

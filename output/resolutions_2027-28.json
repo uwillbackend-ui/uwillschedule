@@ -1,0 +1,9 @@
+{
+  "DISC_BATCH_DAYS_VB_12TH_CBSE_(FLEXI)_ACCOUNTS": "adjust_to_operating_days",
+  "DISC_BATCH_CAPACITY_BRIGHT_11TH_CBSE___B": "subject_rules_and_tests",
+  "DISC_BATCH_CAPACITY_BRIGHT_11TH_CBSE___C": "subject_rules_and_tests",
+  "DISC_BLOCK_SHIFT_PNG_11TH_GSEB___MRG": "exempt_saturday",
+  "DISC_BLOCK_SHIFT_PNG_12TH_GSEB___MRG": "exempt_saturday",
+  "DISC_KAUTIK_SIR_MORNING_WINDOW": "allow_9am",
+  "DISC_VICKY_SIR_VB_EVENING": "extend_to_710pm"
+}
