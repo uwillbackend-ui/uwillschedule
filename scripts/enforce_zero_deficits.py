@@ -18,7 +18,10 @@ def check_fac_allowed_bounds(fac_name, day, start_min, end_min, loader):
         if is_mrg:
             if lim.get("mrg_from") is not None and lim.get("mrg_to") is not None and lim["mrg_from"] == lim["mrg_to"]:
                 return False
-            if lim.get("mrg_from") is not None and start_min < lim["mrg_from"]:
+            mrg_f = lim.get("mrg_from")
+            if fn == "KAUTIK SIR" and mrg_f and mrg_f > 540:
+                mrg_f = 540
+            if mrg_f is not None and start_min < mrg_f:
                 return False
             if lim.get("mrg_to") is not None and end_min > lim["mrg_to"]:
                 return False
@@ -49,12 +52,62 @@ def check_fac_no_overlap(f_name, day, s_curr, new_st, new_et, all_slots, travel_
 
         if not set(facs_1).intersection(set(facs_2)):
             continue
-        if (new_st < 840) != (other.start_min < 840):
+
+        c1 = s_curr.center.strip().upper()
+        c2 = other.center.strip().upper()
+        # Allow identical-time twin divisions at the same center
+        if c1 == c2 and new_st == other.start_min and new_et == other.end_min:
             continue
-        tt = travel_time.get((s_curr.center, other.center), 30) if s_curr.center != other.center else 0
-        if not (new_et + tt <= other.start_min or new_st >= other.end_min + tt):
-            return False
+
+        if c1 == c2:
+            # Same center: strictly no overlap
+            if not (new_et <= other.start_min or new_st >= other.end_min):
+                return False
+        else:
+            # Different centers: must have sufficient travel time
+            tt_curr_other = travel_time.get((c1, c2), 30)
+            tt_other_curr = travel_time.get((c2, c1), 30)
+            if not (new_et + tt_curr_other <= other.start_min or new_st >= other.end_min + tt_other_curr):
+                return False
     return True
+
+
+def get_fac_names(fac_str):
+    if not fac_str or fac_str.startswith("TBD") or fac_str in ["TEST", "WEEKLY TEST", "EXAM", "SCHOOL", "VISITING"]:
+        return []
+    clean = fac_str.strip().upper()
+    parts = [f.strip() for f in clean.split("/")] if "/" in clean else [clean]
+    return ["AASIF SIR" if fn == "ASIF SIR" else fn for fn in parts]
+
+def get_max_allowed_add(fac_str, fac_sched, fac_allotted_mins):
+    fn_list = get_fac_names(fac_str)
+    if not fn_list:
+        return 999999
+    limits = []
+    for fn in fn_list:
+        allot = fac_allotted_mins.get(fn)
+        if allot is not None:
+            cur = fac_sched.get(fn, 0)
+            limits.append(max(0, int(1.10 * allot - cur)))
+    return min(limits) if limits else 999999
+
+def can_expand_fac(fac_str, added_mins, fac_sched, fac_allotted_mins):
+    fn_list = get_fac_names(fac_str)
+    if not fn_list:
+        return False
+    for fn in fn_list:
+        allot = fac_allotted_mins.get(fn)
+        if allot is not None:
+            cur = fac_sched.get(fn, 0)
+            if cur + added_mins > 1.10 * allot:
+                return False
+    return True
+
+def add_to_fac_sched(fac_str, added_mins, fac_sched, fac_allotted_mins):
+    fn_list = get_fac_names(fac_str)
+    for fn in fn_list:
+        if fn in fac_allotted_mins:
+            fac_sched[fn] = fac_sched.get(fn, 0) + added_mins
 
 def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
     print("=" * 70)
@@ -137,6 +190,27 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
         for k in fac_events:
             fac_events[k].sort(key=lambda x: x.start_min)
 
+        fac_allotted_mins = {}
+        for req in loader.subject_requirements:
+            f_raw = (req.faculty or "").strip().upper()
+            if f_raw and not f_raw.startswith("TBD") and f_raw not in ["SCHOOL", "VISITING"]:
+                facs = [fn.strip() for fn in f_raw.split("/")] if "/" in f_raw else [f_raw]
+                for fn in facs:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    fac_allotted_mins[fn] = fac_allotted_mins.get(fn, 0) + round(req.weekly_hours * 60)
+
+        fac_sched = {}
+        for s in all_scheduled_slots:
+            if s.is_fixed: continue
+            f_raw = (s.faculty or "").strip().upper()
+            if f_raw and not f_raw.startswith("TBD") and f_raw not in ["SCHOOL", "VISITING", "TEST", "WEEKLY TEST", "EXAM"]:
+                facs = [fn.strip() for fn in f_raw.split("/")] if "/" in f_raw else [f_raw]
+                for fn in facs:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    if fn in fac_allotted_mins:
+                        dur = s.end_min - s.start_min
+                        fac_sched[fn] = fac_sched.get(fn, 0) + dur
+
         req_totals = {}
         for s in all_scheduled_slots:
             if s.is_fixed: continue
@@ -206,11 +280,14 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                 needed = max(needed, min(deficit_left, max_allowed_dur - cur_dur))
 
             actual_expand = min(avail_after, needed)
+            max_add = get_max_allowed_add(s.faculty, fac_sched, fac_allotted_mins)
+            actual_expand = min(actual_expand, max_add)
             if actual_expand > 0:
                 new_et = s.end_min + actual_expand
                 if check_fac_no_overlap(f, s.day, s, s.start_min, new_et, all_scheduled_slots, travel_time):
                     s.end_min = new_et
                     if r: req_totals[r.req_id] = req_totals.get(r.req_id, 0) + actual_expand
+                    add_to_fac_sched(s.faculty, actual_expand, fac_sched, fac_allotted_mins)
                     expanded_count += 1
                     total_added_mins += actual_expand
 
@@ -272,11 +349,14 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                 needed = max(needed, min(deficit_left, max_allowed_dur - cur_dur))
 
             actual_shift = min(avail_before, needed)
+            max_shift = get_max_allowed_add(s.faculty, fac_sched, fac_allotted_mins)
+            actual_shift = min(actual_shift, max_shift)
             if actual_shift > 0:
                 new_st = s.start_min - actual_shift
                 if check_fac_no_overlap(f, s.day, s, new_st, s.end_min, all_scheduled_slots, travel_time):
                     s.start_min = new_st
                     if r: req_totals[r.req_id] = req_totals.get(r.req_id, 0) + actual_shift
+                    add_to_fac_sched(s.faculty, actual_shift, fac_sched, fac_allotted_mins)
                     expanded_count += 1
                     total_added_mins += actual_shift
 
@@ -325,7 +405,7 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
 
     for fac, allot_m in fac_allotted_mins.items():
         cur_m = fac_sched.get(fac, 0)
-        if cur_m >= allot_m:
+        if cur_m >= 0.90 * allot_m:
             continue
         def_needed = allot_m - cur_m
         fac_s = [s for s in all_scheduled_slots if not s.is_fixed and (s.faculty == fac or (s.faculty == "ASIF SIR" and fac == "AASIF SIR") or (s.faculty and fac in s.faculty))]
@@ -368,11 +448,12 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                     fac_room = min(fac_room, max(0, lim["eve_to"] - s.end_min))
 
             avail_after = (min(batch_room, fac_room) // 5) * 5
-            can_add = min(avail_after, def_needed, 90 - cur_dur)
-            if can_add > 0:
+            max_add = get_max_allowed_add(s.faculty, fac_sched, fac_allotted_mins)
+            can_add = min(avail_after, def_needed, 90 - cur_dur, max_add)
+            if can_add > 0 and check_fac_no_overlap(fac, s.day, s, s.start_min, s.end_min + can_add, all_scheduled_slots, travel_time):
                 s.end_min += can_add
                 def_needed -= can_add
-                fac_sched[fac] += can_add
+                add_to_fac_sched(s.faculty, can_add, fac_sched, fac_allotted_mins)
 
             if def_needed > 0:
                 cur_dur = s.end_min - s.start_min
@@ -400,11 +481,12 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                             fac_room_before = min(fac_room_before, max(0, s.start_min - lim["eve_from"]))
 
                     avail_before = (min(batch_room_before, fac_room_before) // 5) * 5
-                    can_shift = min(avail_before, def_needed, 90 - cur_dur)
-                    if can_shift > 0:
+                    max_shift = get_max_allowed_add(s.faculty, fac_sched, fac_allotted_mins)
+                    can_shift = min(avail_before, def_needed, 90 - cur_dur, max_shift)
+                    if can_shift > 0 and check_fac_no_overlap(fac, s.day, s, s.start_min - can_shift, s.end_min, all_scheduled_slots, travel_time):
                         s.start_min -= can_shift
                         def_needed -= can_shift
-                        fac_sched[fac] += can_shift
+                        add_to_fac_sched(s.faculty, can_shift, fac_sched, fac_allotted_mins)
 
     # Final safety top-up for any faculty still short
     for fac, allot_m in fac_allotted_mins.items():
@@ -425,7 +507,9 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                             b_room = max(0, min(b_room, rec[0] - s.end_min))
                         if b_room >= 5:
                             add_m = min(gap, b_room, 90 - cur_dur)
-                            if check_fac_allowed_bounds(fac, s.day, s.start_min, s.end_min + add_m, loader):
+                            if fac_sched[fac] + add_m <= 1.10 * fac_allotted_mins.get(fac, 9999) and \
+                               check_fac_allowed_bounds(fac, s.day, s.start_min, s.end_min + add_m, loader) and \
+                               check_fac_no_overlap(fac, s.day, s, s.start_min, s.end_min + add_m, all_scheduled_slots, travel_time):
                                 s.end_min += add_m
                                 gap -= add_m
                                 fac_sched[fac] += add_m
@@ -444,7 +528,9 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                             b_room_before = max(0, min(b_room_before, s.start_min - rec[1]))
                         if b_room_before >= 5:
                             shift_m = min(gap, b_room_before, 90 - cur_dur)
-                            if check_fac_allowed_bounds(fac, s.day, s.start_min - shift_m, s.end_min, loader):
+                            if fac_sched[fac] + shift_m <= 1.10 * fac_allotted_mins.get(fac, 9999) and \
+                               check_fac_allowed_bounds(fac, s.day, s.start_min - shift_m, s.end_min, loader) and \
+                               check_fac_no_overlap(fac, s.day, s, s.start_min - shift_m, s.end_min, all_scheduled_slots, travel_time):
                                 s.start_min -= shift_m
                                 gap -= shift_m
                                 fac_sched[fac] += shift_m
@@ -471,16 +557,23 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
     # C. Ambe Manjalpur Pre-Recess Touch (8:15 - 9:20 AM, 0m gap before recess)
     for s in all_scheduled_slots:
         if s.center == "AMBE MANJ" and s.faculty == "KANAKLATA MADAM" and s.start_min == 495 and s.end_min == 555:
-            s.end_min = 560 # 8:15 - 9:20 (65m), touches 9:20 recess!
+            if check_fac_no_overlap(s.faculty, s.day, s, s.start_min, 560, all_scheduled_slots, travel_time):
+                s.end_min = 560 # touches 9:20 recess if no travel conflict!
 
     # E. Multi-Pass Intelligent Chain-Shifting & Gap Elimination
     closed_gaps_count = 0
     for iteration in range(5):
         fac_events = {}
+        fac_sched = {}
         for s in all_scheduled_slots:
+            dur = s.end_min - s.start_min
             f = (s.faculty or "").strip().upper()
             if f and not f.startswith("TBD") and f not in ["TEST", "WEEKLY TEST", "EXAM", "SCHOOL", "VISITING"]:
                 fac_events.setdefault((f, s.day), []).append(s)
+                facs = [fn.strip() for fn in f.split("/")] if "/" in f else [f]
+                for fn in facs:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    fac_sched[fn] = fac_sched.get(fn, 0) + dur
         for k in fac_events:
             fac_events[k].sort(key=lambda x: x.start_min)
 
@@ -511,7 +604,7 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                     if s1.end_min < rec[0] and not s1.is_fixed and not is_test1:
                         cur_dur = s1.end_min - s1.start_min
                         gap = rec[0] - s1.end_min
-                        if cur_dur + gap <= 90:
+                        if cur_dur + gap <= 90 and fac_sched.get(f1, 0) + gap <= 1.10 * fac_allotted_mins.get(f1, 999999):
                             fl1 = fac_events.get((f1, d), [])
                             next_f1 = min((x for x in fl1 if x != s1 and x.start_min >= s1.end_min), key=lambda x: x.start_min, default=None)
                             tt1 = travel_time.get((s1.center, next_f1.center), 30) if (next_f1 and s1.center != next_f1.center) else 0
@@ -600,11 +693,11 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                     # Regular Lecture Option 3: Extend s1 forward to touch s2
                     if not s1.is_fixed and not is_test1:
                         cur_dur = s1.end_min - s1.start_min
-                        if cur_dur + gap <= 95:
+                        if cur_dur + gap <= 95 and can_expand_fac(s1.faculty, gap, fac_sched, fac_allotted_mins):
                             if check_fac_allowed_bounds(f1, d, s1.start_min, s2.start_min, loader) and \
                                check_fac_no_overlap(f1, d, s1, s1.start_min, s2.start_min, all_scheduled_slots, travel_time):
                                 s1.end_min = s2.start_min
-                                if f1 in fac_sched: fac_sched[f1] += gap
+                                add_to_fac_sched(s1.faculty, gap, fac_sched, fac_allotted_mins)
                                 iter_closed += 1
                                 closed_gaps_count += 1
                                 continue
@@ -612,14 +705,41 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                     # Regular Lecture Option 4: Extend s2 backward to touch s1
                     if not s2.is_fixed and not is_test2:
                         cur_dur = s2.end_min - s2.start_min
-                        if cur_dur + gap <= 95:
+                        if cur_dur + gap <= 95 and can_expand_fac(s2.faculty, gap, fac_sched, fac_allotted_mins):
                             if check_fac_allowed_bounds(f2, d, s1.end_min, s2.end_min, loader) and \
                                check_fac_no_overlap(f2, d, s2, s1.end_min, s2.end_min, all_scheduled_slots, travel_time):
                                 s2.start_min = s1.end_min
-                                if f2 in fac_sched: fac_sched[f2] += gap
+                                add_to_fac_sched(s2.faculty, gap, fac_sched, fac_allotted_mins)
                                 iter_closed += 1
                                 closed_gaps_count += 1
                                 continue
+
+                    # Regular Lecture Option 4b: Split Gap between s1 and s2
+                    if not s1.is_fixed and not is_test1 and not s2.is_fixed and not is_test2 and gap <= 45:
+                        closed_split = False
+                        for g1 in [5, 10, 15, 20, 25]:
+                            g2 = gap - g1
+                            if g2 <= 0: continue
+                            dur1 = s1.end_min - s1.start_min
+                            dur2 = s2.end_min - s2.start_min
+                            if dur1 + g1 <= 95 and dur2 + g2 <= 95:
+                                if can_expand_fac(s1.faculty, g1, fac_sched, fac_allotted_mins) and \
+                                   can_expand_fac(s2.faculty, g2, fac_sched, fac_allotted_mins):
+                                    mid = s1.end_min + g1
+                                    if check_fac_allowed_bounds(f1, d, s1.start_min, mid, loader) and \
+                                       check_fac_no_overlap(f1, d, s1, s1.start_min, mid, all_scheduled_slots, travel_time) and \
+                                       check_fac_allowed_bounds(f2, d, mid, s2.end_min, loader) and \
+                                       check_fac_no_overlap(f2, d, s2, mid, s2.end_min, all_scheduled_slots, travel_time):
+                                        s1.end_min = mid
+                                        s2.start_min = mid
+                                        add_to_fac_sched(s1.faculty, g1, fac_sched, fac_allotted_mins)
+                                        add_to_fac_sched(s2.faculty, g2, fac_sched, fac_allotted_mins)
+                                        iter_closed += 1
+                                        closed_gaps_count += 1
+                                        closed_split = True
+                                        break
+                        if closed_split:
+                            continue
 
                     # Regular Lecture Option 5: Chained Shift Forward (shift s0, s1 forward together)
                     if is_eve and not s1.is_fixed and not is_test1 and i > 1:
@@ -653,44 +773,50 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
 
     # Step 4: Final Top-up to Eliminate Remaining Deficits Post-Rebalancing
     for fac, allot_m in fac_allotted_mins.items():
-        cur_m = sum(s.end_min - s.start_min for s in all_scheduled_slots if s.faculty == fac and not s.is_fixed)
-        if cur_m < allot_m:
-            gap = allot_m - cur_m
-            for s in all_scheduled_slots:
-                if s.faculty == fac and not s.is_fixed and "TEST" not in (s.subject or "").upper():
-                    cur_dur = s.end_min - s.start_min
-                    if cur_dur < 90:
-                        b_list = batch_events.get((s.center, s.batch_name, s.day), [])
-                        s_idx = b_list.index(s) if s in b_list else -1
-                        next_b = b_list[s_idx + 1] if (s_idx >= 0 and s_idx + 1 < len(b_list)) else None
-                        b_info = loader.batches.get((s.center, s.batch_name))
-                        day_le = b_info.day_latest_end.get(s.day, b_info.latest_end_min) if b_info else 1200
-                        b_room = max(0, (next_b.start_min - s.end_min) if next_b else (day_le - s.end_min))
-                        rec = recess_map.get((s.center, s.batch_name))
-                        if rec and s.end_min <= rec[0]:
-                            b_room = max(0, min(b_room, rec[0] - s.end_min))
-                        if b_room >= 5:
-                            add_m = min(gap, b_room, 90 - cur_dur)
-                            if check_fac_allowed_bounds(fac, s.day, s.start_min, s.end_min + add_m, loader) and \
-                               check_fac_no_overlap(fac, s.day, s, s.start_min, s.end_min + add_m, all_scheduled_slots, travel_time):
-                                s.end_min += add_m
-                                gap -= add_m
-                                if gap <= 0:
-                                    break
-                    if gap > 0 and cur_dur < 90:
-                        prev_b = b_list[s_idx - 1] if s_idx > 0 else None
-                        b_info = loader.batches.get((s.center, s.batch_name))
+        cur_m = sum(s.end_min - s.start_min for s in all_scheduled_slots if fac in get_fac_names(s.faculty) and not s.is_fixed)
+        if cur_m >= 0.90 * allot_m:
+            continue
+        gap = int(allot_m - cur_m)
+        for s in all_scheduled_slots:
+            if fac in get_fac_names(s.faculty) and not s.is_fixed and "TEST" not in (s.subject or "").upper():
+                cur_dur = s.end_min - s.start_min
+                if cur_dur < 90:
+                    b_list = batch_events.get((s.center, s.batch_name, s.day), [])
+                    s_idx = b_list.index(s) if s in b_list else -1
+                    next_b = b_list[s_idx + 1] if (s_idx >= 0 and s_idx + 1 < len(b_list)) else None
+                    b_info = loader.batches.get((s.center, s.batch_name))
+                    day_le = b_info.day_latest_end.get(s.day, b_info.latest_end_min) if b_info else 1200
+                    b_room = max(0, (next_b.start_min - s.end_min) if next_b else (day_le - s.end_min))
+                    rec = recess_map.get((s.center, s.batch_name))
+                    if rec and s.end_min <= rec[0]:
+                        b_room = max(0, min(b_room, rec[0] - s.end_min))
+                    if b_room >= 5:
+                        max_add = get_max_allowed_add(s.faculty, fac_sched, fac_allotted_mins)
+                        add_m = min(gap, b_room, 90 - cur_dur, max_add)
+                        if add_m > 0 and check_fac_allowed_bounds(fac, s.day, s.start_min, s.end_min + add_m, loader) and \
+                           check_fac_no_overlap(fac, s.day, s, s.start_min, s.end_min + add_m, all_scheduled_slots, travel_time):
+                            s.end_min += add_m
+                            gap -= add_m
+                            add_to_fac_sched(s.faculty, add_m, fac_sched, fac_allotted_mins)
+                            if gap <= 0:
+                                break
+                    b_info = loader.batches.get((s.center, s.batch_name))
+                    is_eve = b_info and (b_info.earliest_start_min >= 840 or "EVE" in s.batch_name or s.start_min >= 840)
+                    prev_b = b_list[s_idx - 1] if s_idx > 0 else None
+                    if gap > 0 and cur_dur < 90 and not (is_eve and prev_b is None):
                         day_es = b_info.day_earliest_start.get(s.day, b_info.earliest_start_min) if b_info else 420
                         b_room_before = max(0, (s.start_min - prev_b.end_min) if prev_b else (s.start_min - day_es))
                         rec = recess_map.get((s.center, s.batch_name))
                         if rec and s.start_min >= rec[1]:
                             b_room_before = max(0, min(b_room_before, s.start_min - rec[1]))
                         if b_room_before >= 5:
-                            shift_m = min(gap, b_room_before, 90 - cur_dur)
-                            if check_fac_allowed_bounds(fac, s.day, s.start_min - shift_m, s.end_min, loader) and \
+                            max_add = get_max_allowed_add(s.faculty, fac_sched, fac_allotted_mins)
+                            shift_m = min(gap, b_room_before, 90 - cur_dur, max_add)
+                            if shift_m > 0 and check_fac_allowed_bounds(fac, s.day, s.start_min - shift_m, s.end_min, loader) and \
                                check_fac_no_overlap(fac, s.day, s, s.start_min - shift_m, s.end_min, all_scheduled_slots, travel_time):
                                 s.start_min -= shift_m
                                 gap -= shift_m
+                                add_to_fac_sched(s.faculty, shift_m, fac_sched, fac_allotted_mins)
                                 if gap <= 0:
                                     break
 
@@ -720,7 +846,7 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
             if rec and s.end_min <= rec[0]:
                 room_after = min(room_after, rec[0] - s.end_min)
             
-            if room_after >= deficit_m:
+            if room_after >= deficit_m and check_fac_allowed_bounds(s.faculty, s.day, s.start_min, s.end_min + deficit_m, loader) and check_fac_no_overlap(s.faculty, s.day, s, s.start_min, s.end_min + deficit_m, all_scheduled_slots, travel_time):
                 s.end_min += deficit_m
             else:
                 prev_b = b_list[s_idx - 1] if s_idx > 0 else None
@@ -728,29 +854,94 @@ def enforce_zero_deficits(all_scheduled_slots, loader, branch_hours):
                 room_before = (s.start_min - prev_b.end_min) if prev_b else (s.start_min - day_es)
                 if rec and s.start_min >= rec[1]:
                     room_before = min(room_before, s.start_min - rec[1])
-                s.start_min -= min(deficit_m, room_before)
+                shift_b = min(deficit_m, room_before)
+                if shift_b > 0 and check_fac_allowed_bounds(s.faculty, s.day, s.start_min - shift_b, s.end_min, loader) and check_fac_no_overlap(s.faculty, s.day, s, s.start_min - shift_b, s.end_min, all_scheduled_slots, travel_time):
+                    s.start_min -= shift_b
                 rem = min_dur - (s.end_min - s.start_min)
-                if rem > 0 and room_after >= rem:
+                if rem > 0 and room_after >= rem and check_fac_allowed_bounds(s.faculty, s.day, s.start_min, s.end_min + rem, loader) and check_fac_no_overlap(s.faculty, s.day, s, s.start_min, s.end_min + rem, all_scheduled_slots, travel_time):
                     s.end_min += rem
 
     # Ensure 100% compliance with RULE_002 (NO_EMPTY_SLOTS): close any small remaining gaps between consecutive slots
-    for (c, b), b_info in loader.batches.items():
-        if b_info.earliest_start_min < 840 and "EVE" not in b:
-            continue
-        b_day_slots = {}
+    for _gap_pass in range(5):
+        gaps_closed_this_pass = 0
+        fac_sched = {}
         for s in all_scheduled_slots:
-            if s.center == c and s.batch_name == b:
-                b_day_slots.setdefault(s.day, []).append(s)
-        for d, slots in b_day_slots.items():
-            slots.sort(key=lambda x: x.start_min)
-            for i in range(len(slots) - 1):
-                s1, s2 = slots[i], slots[i + 1]
-                gap = s2.start_min - s1.end_min
-                if 0 < gap <= 45:
-                    if "TEST" not in (s1.subject or "").upper():
-                        s1.end_min = s2.start_min
-                    elif "TEST" not in (s2.subject or "").upper():
-                        s2.start_min = s1.end_min
+            dur = s.end_min - s.start_min
+            f = (s.faculty or "").strip().upper()
+            if f and not f.startswith("TBD") and f not in ["TEST", "WEEKLY TEST", "EXAM", "SCHOOL", "VISITING"]:
+                facs = [fn.strip() for fn in f.split("/")] if "/" in f else [f]
+                for fn in facs:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    fac_sched[fn] = fac_sched.get(fn, 0) + dur
+        for (c, b), b_info in loader.batches.items():
+            if b_info.earliest_start_min < 840 and "EVE" not in b:
+                continue
+            b_day_slots = {}
+            for s in all_scheduled_slots:
+                if s.center == c and s.batch_name == b:
+                    b_day_slots.setdefault(s.day, []).append(s)
+            for d, slots in b_day_slots.items():
+                slots.sort(key=lambda x: x.start_min)
+                for i in range(len(slots) - 1):
+                    s1, s2 = slots[i], slots[i + 1]
+                    gap = s2.start_min - s1.end_min
+                    if 0 < gap <= 180:
+                        is_t1 = ("TEST" in (s1.subject or "").upper() or "TEST" in (s1.faculty or "").upper())
+                        is_t2 = ("TEST" in (s2.subject or "").upper() or "TEST" in (s2.faculty or "").upper())
+                        dur1 = s1.end_min - s1.start_min
+                        dur2 = s2.end_min - s2.start_min
+                        if is_t2:
+                            # Shift test earlier to close the gap (tests have no faculty)
+                            s2.start_min = s1.end_min
+                            s2.end_min = s1.end_min + 60
+                            gaps_closed_this_pass += 1
+                        elif is_t1 and i > 0:
+                            # Shift test forward to close the gap (tests have no faculty)
+                            s1.end_min = s2.start_min
+                            s1.start_min = s2.start_min - 60
+                            gaps_closed_this_pass += 1
+                        else:
+                            # Try shifting s2 earlier
+                            new_s2_st = s1.end_min
+                            new_s2_et = new_s2_st + dur2
+                            if check_fac_allowed_bounds(s2.faculty, s2.day, new_s2_st, new_s2_et, loader) and \
+                               check_fac_no_overlap(s2.faculty, s2.day, s2, new_s2_st, new_s2_et, all_scheduled_slots, travel_time):
+                                s2.start_min = new_s2_st
+                                s2.end_min = new_s2_et
+                                gaps_closed_this_pass += 1
+                            # Try extending s1 forward (only if s1 is not a test)
+                            elif not is_t1 and (s2.start_min - s1.start_min) <= 95 and \
+                                 all(fac_sched.get("AASIF SIR" if fn == "ASIF SIR" else fn, 0) + gap <= 1.10 * fac_allotted_mins.get("AASIF SIR" if fn == "ASIF SIR" else fn, 999999) for fn in ([x.strip() for x in (s1.faculty or "").split("/")] if "/" in (s1.faculty or "") else [(s1.faculty or "").strip()])) and \
+                                 check_fac_allowed_bounds(s1.faculty, s1.day, s1.start_min, s2.start_min, loader) and \
+                                 check_fac_no_overlap(s1.faculty, s1.day, s1, s1.start_min, s2.start_min, all_scheduled_slots, travel_time):
+                                s1.end_min = s2.start_min
+                                for fn in ([x.strip() for x in (s1.faculty or "").split("/")] if "/" in (s1.faculty or "") else [(s1.faculty or "").strip()]):
+                                    fn_clean = "AASIF SIR" if fn == "ASIF SIR" else fn
+                                    fac_sched[fn_clean] = fac_sched.get(fn_clean, 0) + gap
+                                gaps_closed_this_pass += 1
+                            # Try extending s2 backward (only if s2 is not a test)
+                            elif not is_t2 and (s2.end_min - s1.end_min) <= 95 and \
+                                 all(fac_sched.get("AASIF SIR" if fn == "ASIF SIR" else fn, 0) + gap <= 1.10 * fac_allotted_mins.get("AASIF SIR" if fn == "ASIF SIR" else fn, 999999) for fn in ([x.strip() for x in (s2.faculty or "").split("/")] if "/" in (s2.faculty or "") else [(s2.faculty or "").strip()])) and \
+                                 check_fac_allowed_bounds(s2.faculty, s2.day, s1.end_min, s2.end_min, loader) and \
+                                 check_fac_no_overlap(s2.faculty, s2.day, s2, s1.end_min, s2.end_min, all_scheduled_slots, travel_time):
+                                s2.start_min = s1.end_min
+                                for fn in ([x.strip() for x in (s2.faculty or "").split("/")] if "/" in (s2.faculty or "") else [(s2.faculty or "").strip()]):
+                                    fn_clean = "AASIF SIR" if fn == "ASIF SIR" else fn
+                                    fac_sched[fn_clean] = fac_sched.get(fn_clean, 0) + gap
+                                gaps_closed_this_pass += 1
+                            # Try shifting s1 forward (if not the first slot in an evening batch)
+                            elif i > 0:
+                                prev_b = slots[i - 1]
+                                new_s1_et = s2.start_min
+                                new_s1_st = new_s1_et - dur1
+                                if new_s1_st >= prev_b.end_min and \
+                                   check_fac_allowed_bounds(s1.faculty, s1.day, new_s1_st, new_s1_et, loader) and \
+                                   check_fac_no_overlap(s1.faculty, s1.day, s1, new_s1_st, new_s1_et, all_scheduled_slots, travel_time):
+                                    s1.start_min = new_s1_st
+                                    s1.end_min = new_s1_et
+                                    gaps_closed_this_pass += 1
+        if gaps_closed_this_pass == 0:
+            break
 
     # Invariant Check: Verify all tests are strictly 60 minutes and NEVER on Monday
     test_errs = 0

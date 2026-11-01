@@ -156,6 +156,7 @@ def load_standing_rules(csv_path: Optional[str] = None, academic_year: str = "20
                         faculty=clean_row.get("FACULTY", "ANY"),
                         description=clean_row.get("DESCRIPTION", "")
                     )
+                    rule._source_file = csv_path
                     rules.append(rule)
         except Exception as e:
             print(f"[Rules Engine Notice] Error reading standing rules CSV ({csv_path}): {e}")
@@ -394,6 +395,163 @@ def audit_schedule_against_rules(
                 if len(unique_starts) > 1:
                     disp_starts = {d: minutes_to_display(st) for d, st in earliest_per_day.items()}
                     violations.append(f"{c} - {b}: fluctuating daily starts: {disp_starts}")
+
+        elif rule.rule_type == "NO_FACULTY_OVERLAP":
+            # Rule: No lecture of any faculty should overlap in 2 different batches
+            fac_day_slots = {}
+            for s in all_slots:
+                c = getattr(s, "center", "").upper()
+                b = getattr(s, "batch_name", getattr(s, "batch", "")).upper()
+                d = getattr(s, "day", "").upper()
+                fac = getattr(s, "faculty", "").strip().upper()
+                if not fac or fac in ["WEEKLY TEST", "TEST", "EXAM", "SCHOOL", "VISITING"] or fac.startswith("TBD"):
+                    continue
+                fac_names = [f.strip() for f in fac.split("/")] if "/" in fac else [fac]
+                for fn in fac_names:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    fac_day_slots.setdefault((fn, d), []).append(s)
+
+            for (fn, d), slots in fac_day_slots.items():
+                if len(slots) < 2:
+                    continue
+                for i in range(len(slots)):
+                    for j in range(i + 1, len(slots)):
+                        s1, s2 = slots[i], slots[j]
+                        c1, c2 = getattr(s1, "center", "").upper(), getattr(s2, "center", "").upper()
+                        b1 = getattr(s1, "batch_name", getattr(s1, "batch", "")).upper()
+                        b2 = getattr(s2, "batch_name", getattr(s2, "batch", "")).upper()
+                        if c1 == c2 and b1 == b2:
+                            continue
+                        st1, et1 = getattr(s1, "start_min", 0), getattr(s1, "end_min", 0)
+                        st2, et2 = getattr(s2, "start_min", 0), getattr(s2, "end_min", 0)
+                        # Allow identical-time merged / twin divisions at the same center:
+                        # e.g., BRIGHT 11TH CBSE - B and C, JAI AMBE 11TH GSEB - B and C
+                        if c1 == c2 and st1 == st2 and et1 == et2:
+                            continue
+                        # Check overlap: max(st1, st2) < min(et1, et2)
+                        if max(st1, st2) < min(et1, et2):
+                            time_str1 = f"{minutes_to_display(st1)}-{minutes_to_display(et1)}"
+                            time_str2 = f"{minutes_to_display(st2)}-{minutes_to_display(et2)}"
+                            violations.append(
+                                f"{fn} on {d}: overlapping slots {c1} - {b1} ({time_str1}) vs {c2} - {b2} ({time_str2})"
+                            )
+
+        elif rule.rule_type == "ENOUGH_TRAVEL_TIME":
+            # Rule: Faculty should have enough time to travel from 1 branch to another branch between 2 lectures
+            travel_time_matrix = {}
+            if loader and hasattr(loader, "travel_matrix"):
+                travel_time_matrix = loader.travel_matrix
+            else:
+                data_dir = "data_2027_28" if "2027_28" in getattr(rule, "_source_file", "") else "data"
+                csv_path = os.path.join(data_dir, "travel_time_matrix.csv")
+                if not os.path.exists(csv_path):
+                    csv_path = "data/travel_time_matrix.csv"
+                if os.path.exists(csv_path):
+                    import csv
+                    with open(csv_path, mode="r", encoding="utf-8") as f:
+                        for row in csv.DictReader(f):
+                            clean_r = {k.strip().upper(): v.strip() for k, v in row.items() if k}
+                            from_c = (clean_r.get("FROM_CENTER") or clean_r.get("FROM BRANCH") or clean_r.get("FROM", "")).upper()
+                            to_c = (clean_r.get("TO_CENTER") or clean_r.get("TO BRANCH") or clean_r.get("TO", "")).upper()
+                            time_m = clean_r.get("TRAVEL_TIME_MINUTES") or clean_r.get("TRAVEL TIME") or clean_r.get("MINUTES", "30")
+                            try:
+                                travel_time_matrix[(from_c, to_c)] = int(time_m)
+                            except ValueError:
+                                travel_time_matrix[(from_c, to_c)] = 30
+
+            fac_day_slots = {}
+            for s in all_slots:
+                c = getattr(s, "center", "").upper()
+                d = getattr(s, "day", "").upper()
+                fac = getattr(s, "faculty", "").strip().upper()
+                if not fac or fac in ["WEEKLY TEST", "TEST", "EXAM", "SCHOOL", "VISITING"] or fac.startswith("TBD"):
+                    continue
+                fac_names = [f.strip() for f in fac.split("/")] if "/" in fac else [fac]
+                for fn in fac_names:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    fac_day_slots.setdefault((fn, d), []).append(s)
+
+            for (fn, d), slots in fac_day_slots.items():
+                if len(slots) < 2:
+                    continue
+                # Sort slots by start_min, then end_min
+                sorted_slots = sorted(slots, key=lambda x: (getattr(x, "start_min", 0), getattr(x, "end_min", 0)))
+                for i in range(len(sorted_slots) - 1):
+                    s_curr = sorted_slots[i]
+                    s_next = sorted_slots[i + 1]
+                    c_curr = getattr(s_curr, "center", "").upper()
+                    c_next = getattr(s_next, "center", "").upper()
+                    if c_curr == c_next:
+                        continue
+                    end_curr = getattr(s_curr, "end_min", 0)
+                    start_next = getattr(s_next, "start_min", 0)
+                    req_travel = travel_time_matrix.get((c_curr, c_next), 30)
+                    gap = start_next - end_curr
+                    if gap < req_travel:
+                        t_curr = minutes_to_display(end_curr)
+                        t_next = minutes_to_display(start_next)
+                        violations.append(
+                            f"{fn} on {d}: insufficient travel from {c_curr} (ends {t_curr}) to {c_next} (starts {t_next}): {gap}m available, {req_travel}m required"
+                        )
+
+        elif rule.rule_type == "FACULTY_HOURS_TOLERANCE":
+            # Rule: Faculty master data should be followed strictly.
+            # No faculty should get less or more number of weekly hours in any batch.
+            # Only 10% variation in total weekly hours is acceptable (0.90 * allotted <= scheduled <= 1.10 * allotted).
+            faculty_allotted = {}
+            data_dir = "data_2027_28" if "2027_28" in getattr(rule, "_source_file", "") else "data"
+            reqs = []
+            if loader and hasattr(loader, "subject_requirements") and loader.subject_requirements:
+                reqs = loader.subject_requirements
+            else:
+                from src.data_loader import DataLoader
+                dl = DataLoader(data_dir)
+                dl.load_all()
+                reqs = dl.subject_requirements
+
+            for req in reqs:
+                f = (req.faculty or "").strip().upper()
+                if f and not f.startswith("TBD") and f not in ["SCHOOL", "VISITING"]:
+                    facs = [fn.strip() for fn in f.split("/")] if "/" in f else [f]
+                    for fn in facs:
+                        if fn == "ASIF SIR": fn = "AASIF SIR"
+                        faculty_allotted[fn] = faculty_allotted.get(fn, 0) + round(req.weekly_hours * 60)
+
+            # Compute scheduled minutes per faculty
+            faculty_scheduled = {}
+            for s in all_slots:
+                c = getattr(s, "center", "").upper()
+                b = getattr(s, "batch_name", getattr(s, "batch", "")).upper()
+                d = getattr(s, "day", "").upper()
+                st = getattr(s, "start_min", 0)
+                et = getattr(s, "end_min", 0)
+                dur = et - st
+                fac = getattr(s, "faculty", "").strip().upper()
+                if not fac or fac in ["WEEKLY TEST", "TEST", "EXAM", "SCHOOL", "VISITING"] or fac.startswith("TBD"):
+                    continue
+                fac_names = [f.strip() for f in fac.split("/")] if "/" in fac else [fac]
+                for fn in fac_names:
+                    if fn == "ASIF SIR": fn = "AASIF SIR"
+                    faculty_scheduled[fn] = faculty_scheduled.get(fn, 0) + dur
+
+            for fac, allotted_m in faculty_allotted.items():
+                if allotted_m <= 0:
+                    continue
+                # Skip backup faculties as RULE_004 explicitly permits them to absorb remaining open slots
+                if fac in ["SUNIL SIR", "MANISH SIR", "PRIYANKA MADAM"]:
+                    continue
+
+                sched_m = faculty_scheduled.get(fac, 0)
+                min_allowed = 0.90 * allotted_m
+                max_allowed = 1.10 * allotted_m
+                if sched_m < min_allowed:
+                    violations.append(
+                        f"{fac}: scheduled {sched_m/60:.1f}h is below 90% of allotted {allotted_m/60:.1f}h (-{(allotted_m - sched_m)/60:.1f}h)"
+                    )
+                elif sched_m > max_allowed:
+                    violations.append(
+                        f"{fac}: scheduled {sched_m/60:.1f}h exceeds 110% of allotted {allotted_m/60:.1f}h (+{(sched_m - allotted_m)/60:.1f}h)"
+                    )
 
         is_passed = (len(violations) == 0)
         if not is_passed:

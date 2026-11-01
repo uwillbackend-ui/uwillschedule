@@ -34,10 +34,10 @@ generation_state = {
 }
 generation_thread = None
 
-def run_generation_worker(year):
+def run_generation_worker(year, resolutions=None):
     global generation_state
     try:
-        generate_timetable.run_schedule_generation(sync_first=True, academic_year=year)
+        generate_timetable.run_schedule_generation(sync_first=True, academic_year=year, resolutions=resolutions)
         try:
             from src import google_sheets_exporter
             google_sheets_exporter.auto_push_all(output_base=get_output_base(), year=year)
@@ -131,6 +131,9 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
         if path in ["/", "/index.html", "/api/index"]:
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(get_html_page().encode("utf-8"))
             return
@@ -140,12 +143,31 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/generate/status":
-            global generation_state
+            global generation_state, generation_thread
             with generation_lock:
+                if generation_state.get("status") == "running" and generation_thread and not generation_thread.is_alive():
+                    generation_state["status"] = "failed"
+                    generation_state["error"] = "Generation worker thread stopped unexpectedly."
+                    generation_state["message"] = "Generation worker thread stopped unexpectedly."
                 state_copy = dict(generation_state)
             if state_copy.get("status") == "running" and state_copy.get("start_time"):
                 state_copy["elapsed_sec"] = int(time.time() - state_copy["start_time"])
             self.send_json_response(200, state_copy)
+            return
+
+        elif path == "/api/discrepancies":
+            year = self._get_query_param("year") or "2026-27"
+            try:
+                from src.discrepancy_detector import detect_discrepancies
+                discrepancies = detect_discrepancies(academic_year=year)
+                self.send_json_response(200, {
+                    "success": True,
+                    "year": year,
+                    "discrepancies": discrepancies,
+                    "count": len(discrepancies)
+                })
+            except Exception as e:
+                self.send_json_response(500, {"success": False, "message": str(e)})
             return
 
         elif path == "/api/download/batch-pdf":
@@ -367,12 +389,45 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json_response(500, {"success": False, "message": str(e)})
             return
 
+        elif path == "/api/discrepancies":
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else ""
+                data = json.loads(body) if body else {}
+                year = data.get("year") or self._get_query_param("year") or "2026-27"
+                from src.discrepancy_detector import detect_discrepancies
+                discrepancies = detect_discrepancies(academic_year=year)
+                self.send_json_response(200, {
+                    "success": True,
+                    "year": year,
+                    "discrepancies": discrepancies,
+                    "count": len(discrepancies)
+                })
+            except Exception as e:
+                self.send_json_response(500, {"success": False, "message": str(e)})
+            return
+
         elif path == "/api/generate":
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else ""
                 data = json.loads(body) if body else {}
                 year = data.get("year") or self._get_query_param("year") or "2026-27"
+                resolutions = data.get("resolutions")
+
+                # If no resolutions are provided in the request, detect institutional contradictions first!
+                if not resolutions:
+                    from src.discrepancy_detector import detect_discrepancies
+                    discrepancies = detect_discrepancies(academic_year=year)
+                    if discrepancies:
+                        self.send_json_response(200, {
+                            "success": True,
+                            "status": "discrepancies",
+                            "year": year,
+                            "discrepancies": discrepancies,
+                            "message": f"Found {len(discrepancies)} institutional scheduling contradictions. Please select resolutions to proceed."
+                        })
+                        return
 
                 global generation_state, generation_thread
                 with generation_lock:
@@ -394,7 +449,7 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "message": f"Starting constraint solver for {year}...",
                         "error": None
                     }
-                    generation_thread = threading.Thread(target=run_generation_worker, args=(year,), daemon=True)
+                    generation_thread = threading.Thread(target=run_generation_worker, args=(year, resolutions), daemon=True)
                     generation_thread.start()
 
                 self.send_json_response(200, {
@@ -1030,6 +1085,9 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
     def send_json_response(self, code, data):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
