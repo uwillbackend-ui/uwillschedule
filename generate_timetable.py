@@ -777,7 +777,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     solver.parameters.use_lns = False
     solver.parameters.log_search_progress = True
     solver.parameters.use_feasibility_pump = True
-    solver.parameters.repair_hint = True
+    solver.parameters.repair_hint = False
     solver.parameters.use_optimization_hints = True
 
     # Load warm-start solution hints if available to seed CP-SAT with a known feasible base
