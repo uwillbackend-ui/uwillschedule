@@ -797,14 +797,14 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     # Solve
     solver = cp_model.CpSolver()
     if os.environ.get("VERCEL"):
-        solver.parameters.max_time_in_seconds = 45.0
+        solver.parameters.max_time_in_seconds = 30.0
         solver.parameters.num_workers = 2
     elif os.environ.get("RENDER"):
-        solver.parameters.max_time_in_seconds = 50.0
+        solver.parameters.max_time_in_seconds = 30.0
         solver.parameters.num_workers = 2
     else:
-        solver.parameters.max_time_in_seconds = float(os.environ.get("MAX_TIME", "45.0"))
-        solver.parameters.num_workers = 4
+        solver.parameters.max_time_in_seconds = float(os.environ.get("MAX_TIME", "30.0"))
+        solver.parameters.num_workers = 2
     solver.parameters.log_search_progress = True
     solver.parameters.use_feasibility_pump = True
     solver.parameters.repair_hint = True
@@ -963,6 +963,19 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
 
     print(f"\nTotal scheduled events: {len(all_scheduled_slots)} (including {total_tests_added} weekly tests across {len(all_test_vars)} batches)")
 
+    # Free CP-SAT model & solver from memory immediately
+    try:
+        del model
+        del solver
+        del all_lecture_vars
+        del all_test_vars
+        del batch_day_intervals
+        del fac_day_items
+        import gc
+        gc.collect()
+    except Exception:
+        pass
+
     # Enforce mathematical zero deficits across all faculties and requirements
     from scripts.enforce_zero_deficits import enforce_zero_deficits
     all_scheduled_slots = enforce_zero_deficits(all_scheduled_slots, loader, branch_hours)
@@ -1010,6 +1023,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             shutil.copy2(pdf_path, os.path.join(year_pdf_dir, os.path.basename(pdf_path)))
         except Exception:
             pass
+    import gc
+    gc.collect()
 
     # 2. Faculty Personal PDFs & Excel Map (Filter out Test slots from teacher schedules)
     fac_slots = {}
@@ -1039,6 +1054,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             shutil.copy2(pdf_path, os.path.join(year_fac_pdf_dir, os.path.basename(pdf_path)))
         except Exception:
             pass
+    import gc
+    gc.collect()
 
     year_suffix = f"_{academic_year.replace('-', '_')}"
     # 3. Topic Editor Excel
@@ -1046,17 +1063,18 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
         all_scheduled_slots,
         file_name=f"Weekly_Schedule_Input_Topics{year_suffix}.xlsx"
     )
-    excel_exp.export_topic_editor_sheet(
-        all_scheduled_slots,
-        file_name="Weekly_Schedule_Input_Topics.xlsx"
-    )
+    try:
+        shutil.copy2(editor_path, os.path.join(excel_dir, "Weekly_Schedule_Input_Topics.xlsx"))
+    except Exception:
+        pass
+
     if out_base != "output":
         for fn in [f"Weekly_Schedule_Input_Topics{year_suffix}.xlsx", "Weekly_Schedule_Input_Topics.xlsx"]:
             src_f = os.path.join(excel_dir, fn)
             dst_f = os.path.join("/tmp", fn)
             if os.path.exists(src_f) and src_f != dst_f:
                 try:
-                    shutil.copy(src_f, dst_f)
+                    shutil.copy2(src_f, dst_f)
                 except Exception:
                     pass
 
@@ -1064,15 +1082,26 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     b_master_path = excel_exp.export_all_batches_workbook(
         batches_grid_map, week_dates=sample_dates, file_name=f"All_Batches_Weekly_Schedule{year_suffix}.xlsx"
     )
-    excel_exp.export_all_batches_workbook(
-        batches_grid_map, week_dates=sample_dates, file_name="All_Batches_Weekly_Schedule.xlsx"
-    )
+    try:
+        shutil.copy2(b_master_path, os.path.join(excel_dir, "All_Batches_Weekly_Schedule.xlsx"))
+    except Exception:
+        pass
+
     f_master_path = excel_exp.export_all_faculties_workbook(
         faculties_grid_map, week_dates=sample_dates, file_name=f"All_Faculties_Weekly_Schedule{year_suffix}.xlsx"
     )
-    excel_exp.export_all_faculties_workbook(
-        faculties_grid_map, week_dates=sample_dates, file_name="All_Faculties_Weekly_Schedule.xlsx"
-    )
+    try:
+        shutil.copy2(f_master_path, os.path.join(excel_dir, "All_Faculties_Weekly_Schedule.xlsx"))
+    except Exception:
+        pass
+
+    # Free memory of matrices immediately
+    num_b_tabs = len(batches_grid_map)
+    num_f_tabs = len(faculties_grid_map)
+    del batches_grid_map
+    del faculties_grid_map
+    import gc
+    gc.collect()
 
     # 5. Standing Rules Compliance Audit
     try:
@@ -1089,8 +1118,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     print(f"1. Batch Timetable PDFs: {len(generated_batch_pdfs)} files in 'output/pdf/'")
     print(f"2. Faculty Personal PDFs: {len(generated_fac_pdfs)} files in 'output/faculty_pdf/'")
     print(f"3. Topic Editor Excel: '{editor_path}'")
-    print(f"4. Master All-Batches Excel ({len(batches_grid_map)} tabs): '{b_master_path}'")
-    print(f"5. Master All-Faculties Excel ({len(faculties_grid_map)} tabs): '{f_master_path}'")
+    print(f"4. Master All-Batches Excel ({num_b_tabs} tabs): '{b_master_path}'")
+    print(f"5. Master All-Faculties Excel ({num_f_tabs} tabs): '{f_master_path}'")
     print("=" * 65)
 
 if __name__ == "__main__":
