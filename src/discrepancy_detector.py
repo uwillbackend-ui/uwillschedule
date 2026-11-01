@@ -334,7 +334,7 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
         if "DISC_BATCH_DAYS_VB" in disc_id and "ACCOUNTS" in disc_id:
             if choice == "adjust_to_operating_days":
                 for r in loader.subject_requirements:
-                    if r.center == "VB" and "12TH CBSE" in r.batch and "ACCOUNTS" in r.subject:
+                    if r.center == "VB" and r.batch == "12TH CBSE (FLEXI)" and "ACCOUNTS" in r.subject:
                         r.weekly_days = 5
                         r.weekly_hours = round(r.weekly_days * r.daily_duration_min / 60.0, 2)
             elif choice == "add_operating_day":

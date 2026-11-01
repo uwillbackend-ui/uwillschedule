@@ -1,11 +1,3 @@
 {
-  "DISC_BATCH_DAYS_VB_12TH_CBSE_(FLEXI)_ACCOUNTS": "adjust_to_operating_days",
-  "DISC_BATCH_CAPACITY_BRIGHT_11TH_CBSE___B": "reduce_days",
-  "DISC_BATCH_CAPACITY_BRIGHT_11TH_CBSE___C": "reduce_days",
-  "DISC_BATCH_CAPACITY_OP_11TH_GSEB": "extend_hours",
-  "DISC_BLOCK_SHIFT_PNG_11TH_GSEB___MRG": "exempt_saturday",
-  "DISC_BLOCK_SHIFT_PNG_12TH_GSEB___MRG": "exempt_saturday",
-  "DISC_KAUTIK_SIR_MORNING_WINDOW": "compress_to_60m",
-  "DISC_VICKY_SIR_VB_EVENING": "first_slot_only",
-  "DISC_MANISH_SIR_BCOM_DURATION": "extend_batch_to_1pm"
+  "DISC_BATCH_CAPACITY_OP_11TH_GSEB": "extend_hours"
 }
