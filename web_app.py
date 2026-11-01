@@ -46,7 +46,7 @@ def run_generation_worker(year, resolutions=None):
         with generation_lock:
             generation_state["status"] = "completed"
             generation_state["elapsed_sec"] = int(time.time() - generation_state.get("start_time", time.time()))
-            generation_state["message"] = f"Timetable for {year} generated successfully with 0 overlaps, exact travel buffers & block consistency!"
+            generation_state["message"] = "THE SCHEDULE IS READY"
             generation_state["error"] = None
     except Exception as e:
         with generation_lock:
@@ -446,7 +446,7 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "year": year,
                         "start_time": time.time(),
                         "elapsed_sec": 0,
-                        "message": f"Starting constraint solver for {year}...",
+                        "message": "GENERATING SCHEDULE. PLEASE WAIT...",
                         "error": None
                     }
                     generation_thread = threading.Thread(target=run_generation_worker, args=(year, resolutions), daemon=True)
@@ -455,7 +455,7 @@ class SchedulerRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json_response(200, {
                     "success": True,
                     "status": "running",
-                    "message": f"Timetable optimization for {year} started successfully in background."
+                    "message": "GENERATING SCHEDULE. PLEASE WAIT..."
                 })
             except Exception as e:
                 self.send_json_response(500, {"success": False, "message": str(e)})

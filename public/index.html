@@ -1378,7 +1378,7 @@
                                 : Math.round((Date.now() - startTime) / 1000);
 
                             if (sData.status === 'completed') {
-                                showStatus(true, sData.message || `New timetable for ${currentAcademicYear} generated with zero overlaps and exact travel buffers!`);
+                                showStatus(true, "THE SCHEDULE IS READY");
                                 await loadData();
                                 try {
                                     await autoArchiveToFirebase();
@@ -1390,8 +1390,8 @@
                                 showStatus(false, "Generation error: " + (sData.error || sData.message || "Constraint optimization failed."));
                                 break;
                             } else if (sData.status === 'running') {
-                                if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Solving ${currentAcademicYear} (${elapsed}s)...</span>`;
-                                showStatus(true, `⚡ Solving timetable constraints for Academic Year ${currentAcademicYear} (${elapsed}s elapsed)... CP-SAT mathematical model is optimizing zero overlaps, travel buffers & block consistency.`);
+                                if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>GENERATING SCHEDULE. PLEASE WAIT...</span>`;
+                                showStatus(true, "GENERATING SCHEDULE. PLEASE WAIT...");
                             }
                         }
                     } catch (pollErr) {
@@ -1417,8 +1417,8 @@
         async function generateSchedule(resolutions = null) {
             const btn = document.getElementById('btnGenerate');
             btn.disabled = true;
-            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Checking Constraints...</span>`;
-            showStatus(true, `⚡ Connecting to solver... Initiating timetable optimization for Academic Year ${currentAcademicYear}...`);
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>GENERATING SCHEDULE. PLEASE WAIT...</span>`;
+            showStatus(true, "GENERATING SCHEDULE. PLEASE WAIT...");
 
             try {
                 const payload = { year: currentAcademicYear };
