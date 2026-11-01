@@ -424,34 +424,6 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                 max_p_d = getattr(req, "max_per_day", 1)
                 model.Add(sum(inst_on_d) <= max_p_d)
 
-            # Block 1 consistency (Mon == Tue == Wed)
-            d_b1 = [d for d in BLOCK_1 if d in op_days]
-            for i in range(len(d_b1)):
-                for j in range(i + 1, len(d_b1)):
-                    d1, d2 = d_b1[i], d_b1[j]
-                    insts1 = day_slot_vars.get(d1, [])
-                    insts2 = day_slot_vars.get(d2, [])
-                    for s1 in insts1:
-                        for s2 in insts2:
-                            same_b1 = model.NewBoolVar(f"sb1_{req.req_id}_{d1}_{d2}")
-                            model.Add(s1["start"] == s2["start"]).OnlyEnforceIf([s1["act"], s2["act"], same_b1])
-                            model.Add(s1["dur"] == s2["dur"]).OnlyEnforceIf([s1["act"], s2["act"], same_b1])
-                            block_consistency_vars.append(same_b1)
-
-            # Block 2 consistency (Thu == Fri == Sat)
-            d_b2 = [d for d in BLOCK_2 if d in op_days]
-            for i in range(len(d_b2)):
-                for j in range(i + 1, len(d_b2)):
-                    d1, d2 = d_b2[i], d_b2[j]
-                    insts1 = day_slot_vars.get(d1, [])
-                    insts2 = day_slot_vars.get(d2, [])
-                    for s1 in insts1:
-                        for s2 in insts2:
-                            same_b2 = model.NewBoolVar(f"sb2_{req.req_id}_{d1}_{d2}")
-                            model.Add(s1["start"] == s2["start"]).OnlyEnforceIf([s1["act"], s2["act"], same_b2])
-                            model.Add(s1["dur"] == s2["dur"]).OnlyEnforceIf([s1["act"], s2["act"], same_b2])
-                            block_consistency_vars.append(same_b2)
-
         if batch_altered_vars.get((c, b)):
             alts = batch_altered_vars[(c, b)]
             # Deviation from nominal duration is penalized directly in objective function (alt_sum)
@@ -796,15 +768,13 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
 
     # Solve
     solver = cp_model.CpSolver()
-    if os.environ.get("VERCEL"):
-        solver.parameters.max_time_in_seconds = 30.0
-        solver.parameters.num_workers = 2
-    elif os.environ.get("RENDER"):
-        solver.parameters.max_time_in_seconds = 30.0
-        solver.parameters.num_workers = 2
-    else:
-        solver.parameters.max_time_in_seconds = float(os.environ.get("MAX_TIME", "30.0"))
-        solver.parameters.num_workers = 2
+    max_time = float(os.environ.get("MAX_TIME", "8.0"))
+    solver.parameters.max_time_in_seconds = max_time
+    solver.parameters.num_workers = 2
+    solver.parameters.max_memory_in_mb = 180
+    solver.parameters.symmetry_level = 0
+    solver.parameters.linearization_level = 0
+    solver.parameters.use_lns = False
     solver.parameters.log_search_progress = True
     solver.parameters.use_feasibility_pump = True
     solver.parameters.repair_hint = True
@@ -835,9 +805,15 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
         except Exception as he:
             print(f"[WARM START NOTE] Could not apply hints: {he}")
 
-    print("Solving UNIFIED GLOBAL MODEL across all branches...")
+    import resource
+    def _cur_rss():
+        r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return r / 1024 / 1024 if sys.platform == 'darwin' else r / 1024
+
+    print(f"Solving UNIFIED GLOBAL MODEL across all branches... [RSS BEFORE SOLVE: {_cur_rss():.2f} MB]")
     t0 = time.time()
     st = solver.Solve(model)
+    print(f"[RSS AFTER SOLVE: {_cur_rss():.2f} MB]")
     el = time.time() - t0
     print(f"Solver Status: {solver.StatusName(st)} in {el:.2f} seconds!")
 
@@ -971,14 +947,20 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
         del all_test_vars
         del batch_day_intervals
         del fac_day_items
-        import gc
-        gc.collect()
+    except Exception:
+        pass
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
     except Exception:
         pass
 
     # Enforce mathematical zero deficits across all faculties and requirements
     from scripts.enforce_zero_deficits import enforce_zero_deficits
     all_scheduled_slots = enforce_zero_deficits(all_scheduled_slots, loader, branch_hours)
+    print(f"[RSS AFTER ZERO DEFICITS: {_cur_rss():.2f} MB]")
 
     # Formatters & Exporters
     formatter = TimetableFormatter(start_date_str="05/10/2026")
@@ -1025,6 +1007,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             pass
     import gc
     gc.collect()
+    print(f"[RSS AFTER BATCH PDFS: {_cur_rss():.2f} MB]")
 
     # 2. Faculty Personal PDFs & Excel Map (Filter out Test slots from teacher schedules)
     fac_slots = {}
@@ -1056,6 +1039,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             pass
     import gc
     gc.collect()
+    print(f"[RSS AFTER BATCH PDFS: {_cur_rss():.2f} MB]")
 
     year_suffix = f"_{academic_year.replace('-', '_')}"
     # 3. Topic Editor Excel
@@ -1102,6 +1086,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     del faculties_grid_map
     import gc
     gc.collect()
+    print(f"[RSS AFTER BATCH PDFS: {_cur_rss():.2f} MB]")
 
     # 5. Standing Rules Compliance Audit
     try:
@@ -1128,6 +1113,22 @@ if __name__ == "__main__":
     parser.add_argument("year_pos", nargs="?", default=None, help="Academic year (e.g. 2026-27)")
     parser.add_argument("--year", dest="year_flag", default=None, help="Academic year (e.g. 2026-27)")
     parser.add_argument("--no-sync", action="store_true", help="Skip syncing from Google Sheets")
+    parser.add_argument("--resolutions", default=None, help="JSON file path or string containing discrepancy resolutions")
     args = parser.parse_args()
     year = args.year_flag or args.year_pos or "2026-27"
-    run_schedule_generation(academic_year=year, sync_first=not args.no_sync)
+
+    resolutions_data = None
+    if args.resolutions:
+        if os.path.exists(args.resolutions):
+            try:
+                with open(args.resolutions, "r", encoding="utf-8") as rf:
+                    resolutions_data = json.load(rf)
+            except Exception as e:
+                print(f"[Warning] Could not load resolutions from {args.resolutions}: {e}")
+        else:
+            try:
+                resolutions_data = json.loads(args.resolutions)
+            except Exception as e:
+                print(f"[Warning] Could not parse resolutions JSON string: {e}")
+
+    run_schedule_generation(academic_year=year, sync_first=not args.no_sync, resolutions=resolutions_data)

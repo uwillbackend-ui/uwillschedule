@@ -8,6 +8,7 @@ import io
 import urllib.parse
 import threading
 import time
+import subprocess
 
 sys.path.insert(0, os.path.abspath("."))
 
@@ -37,12 +38,54 @@ generation_thread = None
 def run_generation_worker(year, resolutions=None):
     global generation_state
     try:
-        generate_timetable.run_schedule_generation(sync_first=True, academic_year=year, resolutions=resolutions)
+        resolutions_file = None
+        if resolutions:
+            for out_dir in [get_output_base(), "output", "/tmp"]:
+                try:
+                    os.makedirs(out_dir, exist_ok=True)
+                    f_path = os.path.join(out_dir, f"resolutions_{year}.json")
+                    with open(f_path, "w", encoding="utf-8") as rf:
+                        json.dump(resolutions, rf, indent=2)
+                    if resolutions_file is None:
+                        resolutions_file = f_path
+                except Exception:
+                    pass
+
+        gen_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generate_timetable.py")
+        cmd = [sys.executable, gen_script, "--year", str(year)]
+        if resolutions_file and os.path.exists(resolutions_file):
+            cmd.extend(["--resolutions", resolutions_file])
+
+        print(f"[GENERATION WORKER] Starting generator subprocess: {' '.join(cmd)}")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+
+        output_lines = []
+        for line in proc.stdout:
+            clean_line = line.strip()
+            if clean_line:
+                output_lines.append(clean_line)
+                print(f"[GENERATOR] {clean_line}")
+
+        proc.wait()
+
+        if proc.returncode != 0:
+            error_tail = "\n".join(output_lines[-15:]) if output_lines else f"Process exited with code {proc.returncode}"
+            raise RuntimeError(f"Generation failed (code {proc.returncode}):\n{error_tail}")
+
         with generation_lock:
             generation_state["status"] = "completed"
             generation_state["elapsed_sec"] = int(time.time() - generation_state.get("start_time", time.time()))
             generation_state["message"] = "THE SCHEDULE IS READY"
             generation_state["error"] = None
+
+        print(f"[GENERATION WORKER] Schedule generated successfully for {year} in {generation_state['elapsed_sec']}s")
+
         # Push to Google Sheets asynchronously in background so we don't delay the user
         try:
             from src import google_sheets_exporter
@@ -54,6 +97,7 @@ def run_generation_worker(year, resolutions=None):
         except Exception:
             pass
     except Exception as e:
+        print(f"[GENERATION ERROR] {e}")
         with generation_lock:
             generation_state["status"] = "failed"
             generation_state["elapsed_sec"] = int(time.time() - generation_state.get("start_time", time.time()))
