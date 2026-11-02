@@ -197,14 +197,14 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                     dur_options = [60, 75, 90]
                 elif fac_upper == "VICKY SIR" and c == "AMBE MANJ":
                     dur_options = [60]
-                elif fac_upper == "KAILASH SIR" and c in ["AMBE MANJ", "DAPS"]:
+                elif fac_upper == "KAILASH SIR" and c in ["AMBE MANJ", "DAPS", "THS"]:
                     dur_options = [60]
                 elif fac_upper == "SAGAR SIR" and c == "OP":
                     dur_options = [75]
                 elif fac_upper == "KANAKLATA MADAM":
                     dur_options = [nom_dur] if nom_dur <= 50 else [60]
                 elif fac_upper == "MOHSIN SIR":
-                    dur_options = [90] if nom_dur >= 85 else ([75] if nom_dur >= 70 else [60])
+                    dur_options = [90] if nom_dur >= 85 else ([60, 75] if (c == "THS" or nom_dur >= 70) else [60])
                 else:
                     dur_options = [nom_dur - 15, nom_dur - 10, nom_dur - 5, nom_dur, nom_dur + 5, nom_dur + 10]
                     min_allowed = 50 if c != "THS" else 45
@@ -223,6 +223,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                     dur_options = [60]
                 elif fac_upper == "KAILASH SIR" and c == "DAPS" and "12TH" in b:
                     dur_options = [60]
+                elif fac_upper == "KAILASH SIR" and c == "THS":
+                    dur_options = [60]
                 elif fac_upper == "SAGAR SIR" and c == "OP":
                     dur_options = [75]
                 elif any(fn in fac_upper for fn in ["MANSI", "NAMRATA", "SUNIL", "TRUPTI", "RAMESH", "ARJITA"]):
@@ -230,7 +232,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                 elif fac_upper == "KANAKLATA MADAM":
                     dur_options = [nom_dur] if nom_dur <= 50 else [60]
                 elif fac_upper == "MOHSIN SIR":
-                    dur_options = [90] if nom_dur >= 85 else ([75] if nom_dur >= 70 else [60])
+                    dur_options = [90] if nom_dur >= 85 else ([60, 75] if (c == "THS" or nom_dur >= 70) else [60])
                 elif fac_upper == "SUKETU SIR" and c == "SUB":
                     dur_options = [60]
                 else:
@@ -333,9 +335,8 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                     d_b2 = BLOCK_2[inst]
                     model.Add(day_vars[d_b1] == 1).OnlyEnforceIf(b1_var)
                     model.Add(day_vars[d_b2] == 1).OnlyEnforceIf(b1_var.Not())
-                if c == "THS" and w_days == 3 and "SATURDAY" in day_vars:
-                    model.Add(day_vars["SATURDAY"] == 0)
-
+                # if c == "THS" and w_days == 3 and "SATURDAY" in day_vars:
+                #     model.Add(day_vars["SATURDAY"] == 0)
 
                 st_step = model.NewIntVar(0, (max_batch_le - min(dur_options) - es) // 5, f"st_step_{req.req_id}_{inst}")
                 st_var = model.NewIntVar(es, max_batch_le - min(dur_options), f"st_{req.req_id}_{inst}")
@@ -343,6 +344,19 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                 dur_var = model.NewIntVarFromDomain(cp_model.Domain.FromValues(dur_options), f"dur_{req.req_id}_{inst}")
                 end_var = model.NewIntVar(es + min(dur_options), max_batch_le, f"end_{req.req_id}_{inst}")
                 model.Add(end_var == st_var + dur_var)
+
+                # Standing Institutional Rules: RULE_009 & RULE_010 (THS Accounts)
+                # THS 11th GSEB: 1st lecture of Accounts (7:30 AM - 8:30 AM) all 6 days
+                # THS 12th GSEB: 2nd lecture of Accounts (8:30 AM - 9:30 AM) all 6 days
+                if c == "THS" and (req.subject or "").strip().upper() == "ACCOUNTS" and fac_upper == "KAILASH SIR":
+                    if "11TH" in b:
+                        model.Add(st_var == 450)
+                        model.Add(dur_var == 60)
+                        model.Add(end_var == 510)
+                    elif "12TH" in b:
+                        model.Add(st_var == 510)
+                        model.Add(dur_var == 60)
+                        model.Add(end_var == 570)
 
                 alt = model.NewBoolVar(f"alt_{req.req_id}_{inst}")
                 model.Add(dur_var != nom_dur).OnlyEnforceIf(alt)
@@ -768,7 +782,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
 
     # Solve
     solver = cp_model.CpSolver()
-    max_time = float(os.environ.get("MAX_TIME", "25.0"))
+    max_time = float(os.environ.get("MAX_TIME", "60.0"))
     solver.parameters.max_time_in_seconds = max_time
     solver.parameters.num_workers = 2
     solver.parameters.max_memory_in_mb = 180
@@ -777,7 +791,7 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
     solver.parameters.use_lns = False
     solver.parameters.log_search_progress = True
     solver.parameters.use_feasibility_pump = True
-    solver.parameters.repair_hint = False
+    solver.parameters.repair_hint = True
     solver.parameters.use_optimization_hints = True
 
     # Load warm-start solution hints if available to seed CP-SAT with a known feasible base
@@ -798,10 +812,20 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
             hint_count = 0
             for i, v in enumerate(model.Proto().variables):
                 if v.name and v.name in saved_hints:
+                    val = int(saved_hints[v.name])
+                    # If variable has domain bounds, skip hinting values strictly outside domain
+                    if len(v.domain) >= 2:
+                        in_domain = False
+                        for d_idx in range(0, len(v.domain), 2):
+                            if v.domain[d_idx] <= val <= v.domain[d_idx+1]:
+                                in_domain = True
+                                break
+                        if not in_domain:
+                            continue
                     model.Proto().solution_hint.vars.append(i)
-                    model.Proto().solution_hint.values.append(int(saved_hints[v.name]))
+                    model.Proto().solution_hint.values.append(val)
                     hint_count += 1
-            print(f"[WARM START] Loaded {hint_count} complete solution hints from {hint_file}!")
+            print(f"[WARM START] Loaded {hint_count} compatible solution hints from {hint_file}!")
         except Exception as he:
             print(f"[WARM START NOTE] Could not apply hints: {he}")
 

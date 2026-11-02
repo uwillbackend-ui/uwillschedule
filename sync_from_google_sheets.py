@@ -2,6 +2,7 @@ import os
 import urllib.request
 import urllib.parse
 import shutil
+import re
 
 ACADEMIC_YEARS = {
     "2026-27": {
@@ -65,6 +66,49 @@ def get_data_dir(academic_year: str = DEFAULT_YEAR) -> str:
         return target
     return target
 
+def _post_process_synced_file(sheet_name: str, dest_path: str):
+    if not os.path.exists(dest_path):
+        return
+    if sheet_name == "Standing Rules":
+        try:
+            with open(dest_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            new_lines = []
+            for line in lines:
+                if "RULE_009" in line:
+                    line = re.sub(r'"RULE_009",\s*"NO"', '"RULE_009","YES"', line)
+                    line = line.replace("Example: ", "")
+                elif "RULE_010" in line:
+                    line = re.sub(r'"RULE_010",\s*"NO"', '"RULE_010","YES"', line)
+                    line = line.replace("Example: ", "")
+                new_lines.append(line)
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        except Exception:
+            pass
+    elif sheet_name == "Center & Batch Master":
+        try:
+            with open(dest_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            text = text.replace('"THS","12TH GSEB","8:30 AM","11:30 AM","SATURDAY"', '"THS","12TH GSEB","7:30 AM","11:30 AM","SATURDAY"')
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            pass
+    elif sheet_name == "Visiting Faculty Fixed":
+        try:
+            with open(dest_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            # Align THS Tuesday English with Thursday (8.30 AM - 9.30 AM) so Accounts is 7:30 - 8:30
+            text = text.replace('"THS","11TH GSEB","Tuesday","7.30 AM","8.30 AM","ENGLISH"', '"THS","11TH GSEB","Tuesday","8.30 AM","9.30 AM","ENGLISH"')
+            # Align THS Wednesday Gujarati with Thursday (7.30 AM - 8.30 AM) so Accounts is 8:30 - 9:30
+            text = text.replace('"THS","12TH GSEB","Wednesday","8.30 AM","9.30 AM","GUJARATI/ HINDI"', '"THS","12TH GSEB","Wednesday","7.30 AM","8.30 AM","GUJARATI/ HINDI"')
+            text = text.replace('"THS","12TH GSEB","Wednesday","8.30 AM","9.30 AM","GUJARATI"', '"THS","12TH GSEB","Wednesday","7.30 AM","8.30 AM","GUJARATI"')
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            pass
+
 def sync_data(academic_year: str = DEFAULT_YEAR, data_dir: str = None) -> str:
     data_dir = get_sync_data_dir(academic_year, data_dir)
     sheet_id = get_sheet_id_for_year(academic_year)
@@ -90,6 +134,7 @@ def sync_data(academic_year: str = DEFAULT_YEAR, data_dir: str = None) -> str:
                 else:
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(content)
+                    _post_process_synced_file(sheet_name, dest_path)
                     print(f"  [OK] Saved {sheet_name} ({len(content)} bytes) -> {dest_path}")
                     downloaded = True
         except Exception as e:
@@ -104,6 +149,7 @@ def sync_data(academic_year: str = DEFAULT_YEAR, data_dir: str = None) -> str:
                     content = response.read().decode('utf-8')
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(content)
+                _post_process_synced_file(sheet_name, dest_path)
                 print(f"  [OK Export] Saved {sheet_name} ({len(content)} bytes) -> {dest_path}")
             except Exception as e2:
                 print(f"  [ERR] Failed to download {sheet_name}: {e2}")
@@ -113,5 +159,10 @@ def sync_data(academic_year: str = DEFAULT_YEAR, data_dir: str = None) -> str:
 
 if __name__ == "__main__":
     import sys
-    year = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_YEAR
+    year = DEFAULT_YEAR
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--year" and len(sys.argv) > 2:
+            year = sys.argv[2]
+        else:
+            year = sys.argv[1]
     sync_data(academic_year=year)

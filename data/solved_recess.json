@@ -2,10 +2,10 @@
   "SG_11TH GSEB": {
     "center": "SG",
     "batch": "11TH GSEB",
-    "start_min": 630,
-    "end_min": 660,
-    "start_time": "10:30 AM",
-    "end_time": "11:00 AM",
+    "start_min": 610,
+    "end_min": 640,
+    "start_time": "10:10 AM",
+    "end_time": "10:40 AM",
     "duration": 30
   },
   "SG_12TH GSEB": {
@@ -20,10 +20,10 @@
   "THS_11TH GSEB": {
     "center": "THS",
     "batch": "11TH GSEB",
-    "start_min": 615,
-    "end_min": 645,
-    "start_time": "10:15 AM",
-    "end_time": "10:45 AM",
+    "start_min": 570,
+    "end_min": 600,
+    "start_time": "9:30 AM",
+    "end_time": "10:00 AM",
     "duration": 30
   },
   "THS_12TH GSEB": {
@@ -38,19 +38,19 @@
   "DAPS_11TH GSEB": {
     "center": "DAPS",
     "batch": "11TH GSEB",
-    "start_min": 600,
-    "end_min": 630,
-    "start_time": "10:00 AM",
-    "end_time": "10:30 AM",
+    "start_min": 630,
+    "end_min": 660,
+    "start_time": "10:30 AM",
+    "end_time": "11:00 AM",
     "duration": 30
   },
   "DAPS_12TH GSEB": {
     "center": "DAPS",
     "batch": "12TH GSEB",
-    "start_min": 655,
-    "end_min": 685,
-    "start_time": "10:55 AM",
-    "end_time": "11:25 AM",
+    "start_min": 600,
+    "end_min": 630,
+    "start_time": "10:00 AM",
+    "end_time": "10:30 AM",
     "duration": 30
   }
 }
