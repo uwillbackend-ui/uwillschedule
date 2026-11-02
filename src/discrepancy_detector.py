@@ -475,6 +475,58 @@ def detect_discrepancies(academic_year: str = "2026-27", user_resolutions: Optio
             "selected_option": user_res.get(disc_id, "adjust_duration_to_60m")
         })
 
+    # 11. RULE_002 (NO_EMPTY_SLOTS): Evening Batches Subject Durations vs Contiguity
+    rules_csv = os.path.join(data_dir, "standing_rules.csv")
+    rule_002_active = True
+    if os.path.exists(rules_csv):
+        with open(rules_csv, "r", encoding="utf-8") as f:
+            for line in f:
+                if "RULE_002" in line and '"NO"' in line:
+                    rule_002_active = False
+                    break
+
+    if rule_002_active:
+        eve_centers = ["NZM", "OP", "PNG", "SUB", "VB"]
+        has_eve_batches = any(
+            c in eve_centers and (b_info.earliest_start_min >= 840 or "EVE" in b.upper()) and "B.COM" not in b.upper()
+            for (c, b), b_info in loader.batches.items()
+        )
+
+        if has_eve_batches:
+            disc_id = "DISC_RULE_002_EVENING_EMPTY_SLOTS"
+            discrepancies.append({
+                "id": disc_id,
+                "category": "Standing Rule Contradiction",
+                "center": "NZM, OP, PNG, SUB, VB",
+                "batch": "All Evening Batches",
+                "title": "RULE_002 (No Empty Slots): Subject Durations & Travel Buffers Cause Gaps in Evening Batches",
+                "explanation": (
+                    "Standing Rule 002 mandates that in all afternoon/evening batches, there must be 0 empty slots (contiguous lectures) "
+                    "between consecutive lectures/tests. However, subjects have varying durations (60m, 75m, 80m, 90m), and traveling faculties "
+                    "require 30–45 minute travel buffers across town to reach their evening centers. This creates idle gaps (5 to 45 minutes) "
+                    "between consecutive periods in evening batches."
+                ),
+                "options": [
+                    {
+                        "id": "standardize_60m",
+                        "label": "Standardize all evening lecture slots to uniform 60 minutes (Recommended)",
+                        "description": "Aligns evening lectures to uniform 60-minute blocks, creating uniform slot boundaries and eliminating gap mismatches."
+                    },
+                    {
+                        "id": "allow_travel_buffers",
+                        "label": "Permit natural transition buffers (up to 15-20 mins) for traveling faculties",
+                        "description": "Maintains current curriculum durations and allows short, realistic travel arrival windows between periods."
+                    },
+                    {
+                        "id": "enforce_hard_contiguity",
+                        "label": "Enforce strict zero gaps (force each lecture to start immediately when previous ends)",
+                        "description": "Requires the solver to eliminate all gaps between classes, flexing lecture start times where faculty schedules permit."
+                    }
+                ],
+                "default_option": "standardize_60m",
+                "selected_option": user_res.get(disc_id, "standardize_60m")
+            })
+
     return discrepancies
 
 def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[str, str]] = None) -> None:
@@ -662,4 +714,19 @@ def apply_resolutions_to_loader(loader: DataLoader, resolutions: Optional[Dict[s
                 for r in loader.subject_requirements:
                     if r.center == "THS" and "12" in r.batch and "STATISTICS" in (r.subject or "").upper():
                         r.allow_duration_flex = True
+
+        # 13. RULE_002: Evening empty slots resolution
+        elif disc_id == "DISC_RULE_002_EVENING_EMPTY_SLOTS":
+            if choice == "standardize_60m":
+                for (c, b), b_info in loader.batches.items():
+                    if c in ["NZM", "OP", "PNG", "SUB", "VB"]:
+                        es = b_info.earliest_start_min
+                        if (es >= 840 or "EVE" in b.upper()) and "B.COM" not in b.upper():
+                            for r in loader.subject_requirements:
+                                if r.center == c and r.batch == b and r.daily_duration_min < 60:
+                                    r.daily_duration_min = 60
+            elif choice == "allow_travel_buffers":
+                setattr(loader, "allow_evening_travel_buffers", True)
+            elif choice == "enforce_hard_contiguity":
+                setattr(loader, "enforce_hard_evening_contiguity", True)
 
