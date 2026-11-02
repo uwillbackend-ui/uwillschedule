@@ -47,10 +47,17 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                     resolutions = json.load(f)
             except Exception:
                 resolutions = None
+
+    from src.discrepancy_detector import detect_discrepancies
+    discs = detect_discrepancies(academic_year=academic_year)
+    default_resolutions = {d["id"]: d["default_option"] for d in discs}
     if not resolutions:
-        from src.discrepancy_detector import detect_discrepancies
-        discs = detect_discrepancies(academic_year=academic_year)
-        resolutions = {d["id"]: d["default_option"] for d in discs}
+        resolutions = default_resolutions
+    else:
+        # Merge any missing discrepancies with default recommendations
+        for k, v in default_resolutions.items():
+            if k not in resolutions:
+                resolutions[k] = v
 
     os.makedirs("output", exist_ok=True)
     try:
@@ -204,7 +211,10 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                 elif fac_upper == "KANAKLATA MADAM":
                     dur_options = [nom_dur] if nom_dur <= 50 else [60]
                 elif fac_upper == "MOHSIN SIR":
-                    dur_options = [90] if nom_dur >= 85 else ([60, 75] if (c == "THS" or nom_dur >= 70) else [60])
+                    if c == "THS" and getattr(req, "allow_duration_flex", False):
+                        dur_options = [60, 75]
+                    else:
+                        dur_options = [90] if nom_dur >= 85 else ([75] if nom_dur >= 70 else [60])
                 else:
                     dur_options = [nom_dur - 15, nom_dur - 10, nom_dur - 5, nom_dur, nom_dur + 5, nom_dur + 10]
                     min_allowed = 50 if c != "THS" else 45
@@ -232,7 +242,10 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                 elif fac_upper == "KANAKLATA MADAM":
                     dur_options = [nom_dur] if nom_dur <= 50 else [60]
                 elif fac_upper == "MOHSIN SIR":
-                    dur_options = [90] if nom_dur >= 85 else ([60, 75] if (c == "THS" or nom_dur >= 70) else [60])
+                    if c == "THS" and getattr(req, "allow_duration_flex", False):
+                        dur_options = [60, 75]
+                    else:
+                        dur_options = [90] if nom_dur >= 85 else ([75] if nom_dur >= 70 else [60])
                 elif fac_upper == "SUKETU SIR" and c == "SUB":
                     dur_options = [60]
                 else:
@@ -350,13 +363,23 @@ def run_schedule_generation(sync_first: bool = True, academic_year: str = "2026-
                 # THS 12th GSEB: 2nd lecture of Accounts (8:30 AM - 9:30 AM) all 6 days
                 if c == "THS" and (req.subject or "").strip().upper() == "ACCOUNTS" and fac_upper == "KAILASH SIR":
                     if "11TH" in b:
-                        model.Add(st_var == 450)
+                        tue_st = getattr(loader, "ths_11_tue_accounts_st", 450)
+                        for d, d_var in day_vars.items():
+                            st_target = tue_st if d == "TUESDAY" else 450
+                            model.Add(st_var == st_target).OnlyEnforceIf(d_var)
                         model.Add(dur_var == 60)
-                        model.Add(end_var == 510)
                     elif "12TH" in b:
-                        model.Add(st_var == 510)
+                        wed_st = getattr(loader, "ths_12_wed_accounts_st", 510)
+                        sat_st = getattr(loader, "ths_12_sat_accounts_st", 510)
+                        for d, d_var in day_vars.items():
+                            if d == "WEDNESDAY":
+                                st_target = wed_st
+                            elif d == "SATURDAY":
+                                st_target = sat_st
+                            else:
+                                st_target = 510
+                            model.Add(st_var == st_target).OnlyEnforceIf(d_var)
                         model.Add(dur_var == 60)
-                        model.Add(end_var == 570)
 
                 alt = model.NewBoolVar(f"alt_{req.req_id}_{inst}")
                 model.Add(dur_var != nom_dur).OnlyEnforceIf(alt)

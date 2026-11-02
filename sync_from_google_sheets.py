@@ -86,28 +86,6 @@ def _post_process_synced_file(sheet_name: str, dest_path: str):
                 f.writelines(new_lines)
         except Exception:
             pass
-    elif sheet_name == "Center & Batch Master":
-        try:
-            with open(dest_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            text = text.replace('"THS","12TH GSEB","8:30 AM","11:30 AM","SATURDAY"', '"THS","12TH GSEB","7:30 AM","11:30 AM","SATURDAY"')
-            with open(dest_path, "w", encoding="utf-8") as f:
-                f.write(text)
-        except Exception:
-            pass
-    elif sheet_name == "Visiting Faculty Fixed":
-        try:
-            with open(dest_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            # Align THS Tuesday English with Thursday (8.30 AM - 9.30 AM) so Accounts is 7:30 - 8:30
-            text = text.replace('"THS","11TH GSEB","Tuesday","7.30 AM","8.30 AM","ENGLISH"', '"THS","11TH GSEB","Tuesday","8.30 AM","9.30 AM","ENGLISH"')
-            # Align THS Wednesday Gujarati with Thursday (7.30 AM - 8.30 AM) so Accounts is 8:30 - 9:30
-            text = text.replace('"THS","12TH GSEB","Wednesday","8.30 AM","9.30 AM","GUJARATI/ HINDI"', '"THS","12TH GSEB","Wednesday","7.30 AM","8.30 AM","GUJARATI/ HINDI"')
-            text = text.replace('"THS","12TH GSEB","Wednesday","8.30 AM","9.30 AM","GUJARATI"', '"THS","12TH GSEB","Wednesday","7.30 AM","8.30 AM","GUJARATI"')
-            with open(dest_path, "w", encoding="utf-8") as f:
-                f.write(text)
-        except Exception:
-            pass
 
 def sync_data(academic_year: str = DEFAULT_YEAR, data_dir: str = None) -> str:
     data_dir = get_sync_data_dir(academic_year, data_dir)
