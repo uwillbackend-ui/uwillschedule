@@ -301,7 +301,8 @@ def audit_schedule_against_rules(
                         violations.append(f"Forbidden assignment {target} found at {c} - {b} on {d} at {st_str}")
 
         elif rule.rule_type == "NO_REPEAT_BRANCH_DAY":
-            # Rule: No faculty may visit the same branch twice on any day
+            # Rule: Faculty should not visit the same branch twice in a morning slot or twice in an evening slot.
+            # It is acceptable to visit the same branch once in the morning and once in the afternoon/evening.
             fac_day_slots = {}
             for s in all_slots:
                 c = getattr(s, "center", "").upper()
@@ -315,13 +316,19 @@ def audit_schedule_against_rules(
                     fac_day_slots.setdefault((fn, d), []).append((getattr(s, "start_min", 0), c))
 
             for (fn, d), items in fac_day_slots.items():
-                sorted_items = sorted(items, key=lambda x: x[0])
-                visit_seq = []
-                for _, center in sorted_items:
-                    if not visit_seq or visit_seq[-1] != center:
-                        visit_seq.append(center)
-                if len(visit_seq) != len(set(visit_seq)):
-                    violations.append(f"{fn} on {d}: repeated center visit sequence {visit_seq}")
+                mrg_items = [it for it in items if it[0] < 840]
+                eve_items = [it for it in items if it[0] >= 840]
+
+                for sess_name, sess_items in [("Morning", mrg_items), ("Afternoon/Evening", eve_items)]:
+                    if len(sess_items) < 2:
+                        continue
+                    sorted_items = sorted(sess_items, key=lambda x: x[0])
+                    visit_seq = []
+                    for _, center in sorted_items:
+                        if not visit_seq or visit_seq[-1] != center:
+                            visit_seq.append(center)
+                    if len(visit_seq) != len(set(visit_seq)):
+                        violations.append(f"{fn} on {d} ({sess_name} session): repeated center visit sequence {visit_seq}")
 
         elif rule.rule_type == "EDGE_SLOT_ONLY":
             # Rule: Specified subject(s) must be either first slot or last slot of the day

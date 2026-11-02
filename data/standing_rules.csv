@@ -1,7 +1,7 @@
 "Rule_ID","Active","Rule_Type","Branch","Standard_Batch","Days","Time_Window","Subject","Faculty","Description"
 "RULE_001","YES","NO_TEST_DAY","ALL","ALL","MONDAY","ANY","NO_TEST","ANY","No test should be planned on Monday at any branch or batch."
 "RULE_002","YES","NO_EMPTY_SLOTS","NZM, OP, PNG, SUB, VB","EVENING_BATCHES","ALL","ANY","CONTIGUOUS","ANY","In afternoon/evening batches, there should not be any empty slots between consecutive lectures/tests."
-"RULE_003","YES","NO_REPEAT_BRANCH_DAY","ALL","ALL","ALL","ANY","ANY","ALL","Reduce faculty travel: No faculty may visit the same branch twice on any day (e.g. Deepika Madam at Jai Ambe then DAPS then Jai Ambe is forbidden). All lectures at a center must be finished in one visit."
+"RULE_003","YES","NO_REPEAT_BRANCH_DAY","ALL","ALL","ALL","ANY","ANY","ALL","Faculty should not visit the same branch twice in a morning slot or twice in an evening slot. It is acceptable to visit the same branch once in the morning and once in the afternoon."
 "RULE_004","YES","BACKUP_FACULTY_PRIORITY","ALL","ALL","ALL","ANY","ANY","ALL","Give priority to all faculties who are not backup faculties. Remaining empty slots assigned to backup faculties after primary faculty slots are arranged."
 "RULE_005","YES","EDGE_SLOT_ONLY","NZM, OP, PNG, VB","CBSE_EVENING","ALL","FIRST_OR_LAST","MATHS","ANY","In CBSE evening batches, the lecture of Maths should always be either the first slot or the last slot of the day."
 "RULE_006","YES","EDGE_SLOT_ONLY","NZM, OP, PNG, SUB, VB","EVENING_BATCHES","ALL","FIRST_OR_LAST","GUJARATI, HINDI, COMPUTER, ENGLISH","ANY","In all evening batches, lectures of Gujarati/Hindi, Computer, and English should always be either the first slot or the last slot."

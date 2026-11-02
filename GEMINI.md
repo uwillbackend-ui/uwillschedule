@@ -13,7 +13,7 @@ Whenever you generate, modify, or audit any timetable schedule:
 2. **Honor all rules where `Active == YES`**:
    - `RULE_001` (`NO_TEST_DAY`): No test may ever be scheduled on Monday at any branch or batch.
    - `RULE_002` (`NO_EMPTY_SLOTS`): In all afternoon/evening batches, there must be 0 empty slots between consecutive lectures or tests.
-   - `RULE_003` (`NO_REPEAT_BRANCH_DAY`): No faculty may visit the same branch twice on any day (e.g., Deepika Madam at Jai Ambe then DAPS then Jai Ambe is strictly forbidden). All lectures at a center must be finished in one visit before traveling.
+   - `RULE_003` (`NO_REPEAT_BRANCH_DAY`): The faculty should not visit the same branch twice in a morning slot or twice in an evening slot. It is acceptable to visit the same branch once in the morning and once in the afternoon.
    - `RULE_004` (`BACKUP_FACULTY_PRIORITY`): Priority must be given to all primary faculties. Remaining empty slots assigned to backup faculties only after primary faculty allocations are fulfilled.
    - `RULE_005` (`EDGE_SLOT_ONLY`): In CBSE evening batches, Maths lecture must always be either the first slot or the last slot of the day.
    - `RULE_006` (`EDGE_SLOT_ONLY`): In all evening batches, lectures of Gujarati/Hindi, Computer, and English must always be either the first slot or the last slot of the day.
